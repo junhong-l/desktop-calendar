@@ -1,0 +1,22 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "todo-calendar",
+  "outputfilename": "待办日历",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "frontend:dir": "frontend",
+  "wailsjsdir": "./frontend/src",
+  "author": {
+    "name": "TodoCalendar",
+    "email": "todo@calendar.app"
+  },
+  "info": {
+    "companyName": "TodoCalendar",
+    "productName": "待办日历",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2025 TodoCalendar",
+    "comments": "一个可以添加、通知待办的Windows桌面日历应用"
+  }
+}
