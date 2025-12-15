@@ -51,7 +51,7 @@ func (a *App) GetMinimizeToTray() bool {
 
 // ==================== Todo API ====================
 
-// CreateTodo creates todo
+// CreateTodo creates todo (支持循环创建多条记录)
 func (a *App) CreateTodo(todo models.Todo) (int64, error) {
 	if todo.Title == "" {
 		return 0, fmt.Errorf("title cannot be empty")
@@ -59,10 +59,97 @@ func (a *App) CreateTodo(todo models.Todo) (int64, error) {
 	if todo.AdvanceRemind <= 0 {
 		todo.AdvanceRemind = 15
 	}
-	return a.todoRepo.Create(&todo)
+
+	// 调试日志
+	fmt.Printf("[CreateTodo] RepeatType: %s, CronExpr: %s\n", todo.RepeatType, todo.CronExpr)
+	fmt.Printf("[CreateTodo] StartDate: %v\n", todo.StartDate.Time)
+	if todo.RepeatEndDate != nil {
+		fmt.Printf("[CreateTodo] RepeatEndDate: %v\n", todo.RepeatEndDate.Time)
+	} else {
+		fmt.Println("[CreateTodo] RepeatEndDate: nil")
+	}
+
+	// 如果没有循环，直接创建一条记录
+	if todo.RepeatType == models.RepeatTypeNone || todo.RepeatType == "" {
+		// 单次任务也设置循环信息为 1/1
+		todo.RepeatIndex = 1
+		todo.RepeatTotal = 1
+		id, err := a.todoRepo.Create(&todo)
+		if err != nil {
+			fmt.Printf("[CreateTodo] Create error: %v\n", err)
+			return 0, fmt.Errorf("创建待办失败: %w", err)
+		}
+		return id, nil
+	}
+
+	// 有循环，根据 cron 表达式和结束日期计算所有日期并创建多条记录
+	var scheduledTimes []time.Time
+
+	if todo.CronExpr != "" && todo.RepeatEndDate != nil && !todo.RepeatEndDate.Time.IsZero() {
+		fmt.Printf("[CreateTodo] Calculating scheduled times...\n")
+		scheduledTimes = utils.GetCronScheduledTimes(
+			todo.CronExpr,
+			todo.StartDate.Time,
+			1000, // 最多1000次
+		)
+		fmt.Printf("[CreateTodo] Got %d scheduled times before filtering\n", len(scheduledTimes))
+		// 过滤掉零值时间和超过结束日期的时间
+		filtered := make([]time.Time, 0)
+		for _, t := range scheduledTimes {
+			if !t.IsZero() && !t.After(todo.RepeatEndDate.Time) {
+				filtered = append(filtered, t)
+			}
+		}
+		scheduledTimes = filtered
+		fmt.Printf("[CreateTodo] Got %d scheduled times after filtering\n", len(scheduledTimes))
+	}
+
+	if len(scheduledTimes) == 0 {
+		// 如果没有计算出执行时间，只创建一条（也设置为1/1）
+		fmt.Println("[CreateTodo] No scheduled times, creating single todo")
+		todo.RepeatIndex = 1
+		todo.RepeatTotal = 1
+		id, err := a.todoRepo.Create(&todo)
+		if err != nil {
+			fmt.Printf("[CreateTodo] Create error: %v\n", err)
+			return 0, fmt.Errorf("创建待办失败: %w", err)
+		}
+		return id, nil
+	}
+
+	// 为每个时间点创建一条独立的待办记录
+	totalCount := len(scheduledTimes)
+	fmt.Printf("[CreateTodo] Creating %d todos...\n", totalCount)
+	var firstID int64
+	for i, scheduledTime := range scheduledTimes {
+		newTodo := todo
+		newTodo.ID = 0 // 确保创建新记录
+		newTodo.StartDate = models.FlexTime{Time: scheduledTime}
+		// 结束时间按同样的时间差调整
+		if !todo.EndDate.Time.IsZero() {
+			duration := todo.EndDate.Time.Sub(todo.StartDate.Time)
+			newTodo.EndDate = models.FlexTime{Time: scheduledTime.Add(duration)}
+		}
+		// 设置循环序号信息
+		newTodo.RepeatIndex = i + 1
+		newTodo.RepeatTotal = totalCount
+
+		fmt.Printf("[CreateTodo] Creating todo %d: StartDate=%v, EndDate=%v\n", i+1, newTodo.StartDate.Time, newTodo.EndDate.Time)
+		id, err := a.todoRepo.Create(&newTodo)
+		if err != nil {
+			fmt.Printf("[CreateTodo] Create error for todo %d: %v\n", i+1, err)
+			return 0, fmt.Errorf("创建第 %d 条待办失败: %w", i+1, err)
+		}
+		if i == 0 {
+			firstID = id
+		}
+	}
+
+	fmt.Printf("[CreateTodo] Successfully created %d todos, firstID=%d\n", totalCount, firstID)
+	return firstID, nil
 }
 
-// UpdateTodo updates todo
+// UpdateTodo updates todo (只更新单条记录)
 func (a *App) UpdateTodo(todo models.Todo) error {
 	if todo.ID <= 0 {
 		return fmt.Errorf("invalid todo ID")
@@ -85,7 +172,14 @@ func (a *App) GetTodo(id int64) (*models.Todo, error) {
 
 // GetTodoList gets todo list
 func (a *App) GetTodoList(filter models.TodoFilter) (*models.TodoListResult, error) {
-	return a.todoRepo.List(filter)
+	fmt.Printf("[GetTodoList] filter: %+v\n", filter)
+	result, err := a.todoRepo.List(filter)
+	if err != nil {
+		fmt.Printf("[GetTodoList] error: %v\n", err)
+		return nil, err
+	}
+	fmt.Printf("[GetTodoList] result: total=%d, todos=%d\n", result.Total, len(result.Todos))
+	return result, nil
 }
 
 // GetPendingTodos gets pending todos
@@ -103,9 +197,21 @@ func (a *App) MarkStartRemindTriggered(id int64) error {
 	return a.todoRepo.MarkStartRemindTriggered(id)
 }
 
-// GetWeekTodos gets week todos
+// GetWeekTodos gets week todos (deprecated, use GetWeekTodosNew)
 func (a *App) GetWeekTodos() (*models.WeekTodos, error) {
 	return a.todoRepo.GetWeekTodos()
+}
+
+// GetWeekTodosNew 获取本周待办(新版)
+func (a *App) GetWeekTodosNew() (*models.WeekTodosResult, error) {
+	overdue, todos, err := a.todoRepo.GetWeekTodosNew()
+	if err != nil {
+		return nil, err
+	}
+	return &models.WeekTodosResult{
+		Overdue: overdue,
+		Todos:   todos,
+	}, nil
 }
 
 // MarkTodoCompleted marks todo completed
@@ -157,13 +263,17 @@ func (a *App) GetCalendarMonth(year, month int) ([]models.CalendarDay, error) {
 
 	todoMap := make(map[string][]models.Todo)
 	for _, todo := range todos {
-		current := todo.StartDate.Time
-		for !current.After(todo.EndDate.Time) && !current.After(endDate) {
-			if !current.Before(startDate) {
-				dateKey := current.Format("2006-01-02")
-				todoMap[dateKey] = append(todoMap[dateKey], todo)
-			}
-			current = current.AddDate(0, 0, 1)
+		// 使用 cron 表达式计算实际应该显示在哪些日期
+		cronDates := utils.GetCronDatesInRange(
+			todo.CronExpr,
+			todo.StartDate.Time,
+			todo.EndDate.Time,
+			startDate,
+			endDate,
+		)
+
+		for dateKey := range cronDates {
+			todoMap[dateKey] = append(todoMap[dateKey], todo)
 		}
 	}
 
@@ -224,15 +334,26 @@ func (a *App) CalculateEndDate(startDateStr string, cronExpr string, remindCount
 
 // CalculateRemindCount calculates remind count
 func (a *App) CalculateRemindCount(startDateStr string, cronExpr string, endDateStr string) int {
+	fmt.Printf("[CalculateRemindCount] startDate=%s, cronExpr=%s, endDate=%s\n", startDateStr, cronExpr, endDateStr)
 	startDate, err := time.Parse(time.RFC3339, startDateStr)
 	if err != nil {
-		startDate, _ = time.Parse("2006-01-02T15:04:05", startDateStr)
+		startDate, err = time.Parse("2006-01-02T15:04:05", startDateStr)
+		if err != nil {
+			fmt.Printf("[CalculateRemindCount] Failed to parse startDate: %v\n", err)
+			return 0
+		}
 	}
 	endDate, err := time.Parse(time.RFC3339, endDateStr)
 	if err != nil {
-		endDate, _ = time.Parse("2006-01-02T15:04:05", endDateStr)
+		endDate, err = time.Parse("2006-01-02T15:04:05", endDateStr)
+		if err != nil {
+			fmt.Printf("[CalculateRemindCount] Failed to parse endDate: %v\n", err)
+			return 0
+		}
 	}
-	return utils.CalculateRemindCountByEndDate(startDate, cronExpr, endDate)
+	count := utils.CalculateRemindCountByEndDate(startDate, cronExpr, endDate)
+	fmt.Printf("[CalculateRemindCount] Result count=%d\n", count)
+	return count
 }
 
 // ==================== Attachment API ====================

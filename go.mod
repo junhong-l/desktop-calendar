@@ -7,7 +7,6 @@ require (
 	github.com/go-toast/toast v0.0.0-20190211030409-01e6764cf0a4
 	github.com/gorhill/cronexpr v0.0.0-20180427100037-88b0669f7d75
 	github.com/wailsapp/wails/v2 v2.11.0
-	golang.org/x/sys v0.30.0
 	modernc.org/sqlite v1.34.5
 )
 
@@ -41,6 +40,7 @@ require (
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	golang.org/x/crypto v0.33.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
+	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 	modernc.org/libc v1.55.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect

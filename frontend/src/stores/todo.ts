@@ -4,6 +4,7 @@ import * as api from '@/wailsjs/go/app/App'
 
 export const useTodoStore = defineStore('todo', () => {
   const todos = ref<any[]>([])
+  const pendingTodos = ref<any[]>([]) // 待处理的待办列表
   const loading = ref(false)
   const total = ref(0)
   const page = ref(1)
@@ -35,29 +36,44 @@ export const useTodoStore = defineStore('todo', () => {
     }
   }
 
+  // 获取未完成的待办列表
+  async function fetchPendingTodos() {
+    loading.value = true
+    try {
+      const result: any[] = await api.GetPendingTodos()
+      pendingTodos.value = result || []
+      total.value = pendingTodos.value.length
+    } catch (error) {
+      console.error('Failed to fetch pending todos:', error)
+      pendingTodos.value = []
+    } finally {
+      loading.value = false
+    }
+  }
+
   // 创建待办
   async function createTodo(todo: any): Promise<number> {
     const id = await api.CreateTodo(todo as any)
-    await fetchTodos()
+    await fetchPendingTodos()
     return id
   }
 
   // 更新待办
   async function updateTodo(todo: any): Promise<void> {
     await api.UpdateTodo(todo as any)
-    await fetchTodos()
+    await fetchPendingTodos()
   }
 
   // 删除待办
   async function deleteTodo(id: number): Promise<void> {
     await api.DeleteTodo(id)
-    await fetchTodos()
+    await fetchPendingTodos()
   }
 
-  // 标记完成
-  async function markCompleted(id: number, completed: boolean): Promise<void> {
+  // 标记待办完成
+  async function markTodoCompleted(id: number, completed: boolean): Promise<void> {
     await api.MarkTodoCompleted(id, completed)
-    await fetchTodos()
+    await fetchPendingTodos()
   }
 
   // 获取单个待办
@@ -67,16 +83,18 @@ export const useTodoStore = defineStore('todo', () => {
 
   return {
     todos,
+    pendingTodos,
     loading,
     total,
     page,
     pageSize,
     totalPages,
     fetchTodos,
+    fetchPendingTodos,
     createTodo,
     updateTodo,
     deleteTodo,
-    markCompleted,
+    markTodoCompleted,
     getTodo
   }
 })

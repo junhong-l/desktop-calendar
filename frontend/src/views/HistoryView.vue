@@ -2,6 +2,10 @@
   <div class="history-view">
     <div class="page-header">
       <h2>历史记录</h2>
+      <el-button @click="handleRefresh" :loading="loading">
+        <el-icon><Refresh /></el-icon>
+        刷新
+      </el-button>
     </div>
 
     <!-- 筛选栏 -->
@@ -52,7 +56,7 @@
     <!-- 历史列表 -->
     <div class="history-list card">
       <el-table 
-        :data="todos" 
+        :data="completedTodos" 
         v-loading="loading" 
         style="width: 100%"
       >
@@ -71,7 +75,7 @@
                 </el-tag>
                 <span class="title completed">{{ row.title }}</span>
               </div>
-              <div class="time-range">{{ formatDateTimeRange(row.startDate, row.endDate) }}</div>
+              <div class="time-range">{{ formatTimeRange(row.startDate, row.endDate) }}</div>
             </div>
           </template>
         </el-table-column>
@@ -82,19 +86,12 @@
           </template>
         </el-table-column>
         
-        <el-table-column label="操作" width="180" align="center">
+        <el-table-column label="操作" width="120" align="center">
           <template #default="{ row }">
             <el-button-group>
-              <el-button size="small" @click="handleEdit(row)">
-                <el-icon><Edit /></el-icon>
-                编辑
-              </el-button>
               <el-button size="small" @click="handleRestore(row)">
                 <el-icon><RefreshLeft /></el-icon>
                 恢复
-              </el-button>
-              <el-button size="small" type="danger" @click="handleDelete(row)">
-                <el-icon><Delete /></el-icon>
               </el-button>
             </el-button-group>
           </template>
@@ -114,36 +111,25 @@
         />
       </div>
     </div>
-
-    <!-- 历史详情弹窗 -->
-    <HistoryDetailDialog
-      v-model:visible="detailVisible"
-      :todo="selectedTodo"
-      @saved="handleDetailSaved"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed, nextTick } from 'vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Search, Delete, RefreshLeft, Edit } from '@element-plus/icons-vue'
+import { Search, RefreshLeft, Refresh } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import * as api from '@/wailsjs/go/app/App'
 import { models } from '@/wailsjs/go/models'
-import HistoryDetailDialog from '@/components/HistoryDetailDialog.vue'
 
 type Todo = models.Todo
 type TodoType = { value: string; label: string; icon: string; color: string }
 
-const todos = ref<Todo[]>([])
+const completedTodos = ref<Todo[]>([])
 const todoTypes = ref<TodoType[]>([])
 const loading = ref(false)
 const total = ref(0)
 const page = ref(1)
-
-const detailVisible = ref(false)
-const selectedTodo = ref<Todo | null>(null)
 
 const filter = reactive({
   keyword: '',
@@ -175,18 +161,19 @@ async function fetchHistory() {
   loading.value = true
   try {
     const result = await api.GetTodoList({
-      keyword: filter.keyword || undefined,
-      year: filter.year || undefined,
-      month: filter.month || undefined,
-      types: filter.types.length > 0 ? filter.types : undefined,
+      keyword: filter.keyword || '',
+      year: filter.year || 0,
+      month: filter.month || 0,
+      types: filter.types.length > 0 ? filter.types : [],
       completed: true,
       page: page.value,
       pageSize: filter.pageSize
     })
-    todos.value = result.todos || []
-    total.value = result.total
+    completedTodos.value = result?.todos || []
+    total.value = result?.total || 0
   } catch (error) {
     console.error('Failed to fetch history:', error)
+    completedTodos.value = []
   } finally {
     loading.value = false
   }
@@ -205,19 +192,23 @@ function formatDateTime(date: string): string {
   return dayjs(date).format('YYYY-MM-DD HH:mm')
 }
 
-function formatDateTimeRange(startDate: string, endDate: string): string {
+function formatScheduledTime(date: string): string {
+  if (!date) return '-'
+  return dayjs(date).format('YYYY年MM月DD日 HH:mm')
+}
+
+// 格式化时间范围（开始时间 - 结束时间）
+function formatTimeRange(startDate: string, endDate: string): string {
+  if (!startDate) return '-'
   const start = dayjs(startDate)
-  const end = dayjs(endDate)
-  return `${start.format('YYYY年MM月DD日 HH:mm')} - ${end.format('YYYY年MM月DD日 HH:mm')}`
-}
-
-function handleEdit(row: Todo) {
-  selectedTodo.value = { ...row }
-  detailVisible.value = true
-}
-
-function handleDetailSaved() {
-  fetchHistory()
+  const end = endDate ? dayjs(endDate) : null
+  
+  const startStr = start.format('YYYY年MM月DD日 HH:mm')
+  if (end) {
+    const endStr = end.format('YYYY年MM月DD日 HH:mm')
+    return `${startStr} - ${endStr}`
+  }
+  return startStr
 }
 
 // 月份下拉框展开时滚动到当前月份
@@ -236,6 +227,10 @@ function handleMonthDropdownVisible(visible: boolean) {
   }
 }
 
+function handleRefresh() {
+  fetchHistory()
+}
+
 function handleSearch() {
   // 确保年份是数字（处理 allow-create 产生的字符串）
   if (filter.year && typeof filter.year === 'string') {
@@ -246,30 +241,15 @@ function handleSearch() {
   fetchHistory()
 }
 
-async function handleRestore(todo: Todo) {
+async function handleRestore(row: Todo) {
   try {
-    await ElMessageBox.confirm(`确定要恢复待办"${todo.title}"吗？`, '确认恢复')
-    await api.MarkTodoCompleted(todo.id, false)
+    await ElMessageBox.confirm(`确定要恢复"${row.title}"吗？`, '确认恢复')
+    await api.MarkTodoCompleted(row.id, false)
     ElMessage.success('已恢复')
     fetchHistory()
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error('操作失败')
-    }
-  }
-}
-
-async function handleDelete(todo: Todo) {
-  try {
-    await ElMessageBox.confirm(`确定要永久删除"${todo.title}"吗？`, '确认删除', {
-      type: 'warning'
-    })
-    await api.DeleteTodo(todo.id)
-    ElMessage.success('删除成功')
-    fetchHistory()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败')
     }
   }
 }

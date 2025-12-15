@@ -49,14 +49,6 @@
       </el-main>
     </el-container>
 
-    <!-- 通知弹窗 -->
-    <NotificationDialog 
-      v-model:visible="notificationVisible"
-      :notification="currentNotification"
-      @close="handleNotificationClose"
-      @viewDetail="handleViewDetail"
-    />
-
     <!-- 待办编辑弹窗 -->
     <TodoFormDialog
       v-model:visible="todoFormVisible"
@@ -70,17 +62,14 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Calendar, List, Clock, Setting } from '@element-plus/icons-vue'
-import NotificationDialog from '@/components/NotificationDialog.vue'
 import TodoFormDialog from '@/components/TodoFormDialog.vue'
 import WidgetView from '@/views/WidgetView.vue'
 import NotificationPopupView from '@/views/NotificationPopupView.vue'
-import { useNotificationStore } from '@/stores/notification'
 import { EventsOn, EventsOff } from '@/wailsjs/runtime/runtime'
 import * as api from '@/wailsjs/go/app/App'
 import { GetMode } from '@/wailsjs/go/app/WindowModeService'
 
 const route = useRoute()
-const notificationStore = useNotificationStore()
 
 // 检测是否是小部件模式（通过窗口大小或 URL hash 判断）
 const isWidgetMode = ref(false)
@@ -121,8 +110,6 @@ async function checkWidgetMode() {
 }
 
 const activeMenu = computed(() => route.path)
-const notificationVisible = ref(false)
-const currentNotification = ref<any>(null)
 const todoFormVisible = ref(false)
 const selectedTodo = ref<any>(null)
 
@@ -157,12 +144,6 @@ onMounted(async () => {
   
   // 启动IPC检查定时器（每500ms检查一次）
   ipcCheckInterval = window.setInterval(checkIPCTodo, 500)
-  
-  EventsOn('todo:notification', (data: any) => {
-    currentNotification.value = data
-    notificationVisible.value = true
-    notificationStore.addNotification(data)
-  })
 
   // 监听从小部件打开待办详情的事件
   EventsOn('open:todo', async (todoIdStr: string) => {
@@ -182,21 +163,11 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  EventsOff('todo:notification')
   EventsOff('open:todo')
   if (ipcCheckInterval) {
     clearInterval(ipcCheckInterval)
   }
 })
-
-const handleNotificationClose = () => {
-  notificationVisible.value = false
-}
-
-const handleViewDetail = (todo: any) => {
-  selectedTodo.value = todo
-  todoFormVisible.value = true
-}
 
 const handleTodoSaved = () => {
   todoFormVisible.value = false
@@ -206,6 +177,13 @@ const handleTodoSaved = () => {
 
 <style lang="scss">
 #widget-container {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: transparent;
+}
+
+#notification-popup-container {
   width: 100vw;
   height: 100vh;
   overflow: hidden;

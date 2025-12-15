@@ -111,3 +111,81 @@ func CalculateRemindCountByEndDate(startTime time.Time, expr string, endTime tim
 	}
 	return count
 }
+
+// GetCronDatesInRange 获取在指定日期范围内的所有cron执行日期
+// 返回日期字符串集合，格式为 "2006-01-02"
+func GetCronDatesInRange(expr string, todoStartTime time.Time, todoEndTime time.Time, rangeStart time.Time, rangeEnd time.Time) map[string]bool {
+	dates := make(map[string]bool)
+
+	if expr == "" {
+		// 没有 cron 表达式，只返回开始日期那一天
+		dateKey := todoStartTime.Format("2006-01-02")
+		if !todoStartTime.Before(rangeStart) && !todoStartTime.After(rangeEnd) {
+			dates[dateKey] = true
+		}
+		return dates
+	}
+
+	cronExpr, err := cronexpr.Parse(expr)
+	if err != nil {
+		// 解析失败，返回开始日期
+		dateKey := todoStartTime.Format("2006-01-02")
+		if !todoStartTime.Before(rangeStart) && !todoStartTime.After(rangeEnd) {
+			dates[dateKey] = true
+		}
+		return dates
+	}
+
+	// 从 todoStartTime 的前一秒开始计算，确保包含开始时间本身
+	current := todoStartTime.Add(-time.Second)
+	maxIterations := 1000 // 防止无限循环
+
+	for i := 0; i < maxIterations; i++ {
+		next := cronExpr.Next(current)
+
+		// 如果下次执行时间超过了待办的结束时间或范围结束时间，停止
+		if next.After(todoEndTime) || next.After(rangeEnd) {
+			break
+		}
+
+		// 如果在查询范围内，添加到结果
+		if !next.Before(rangeStart) {
+			dateKey := next.Format("2006-01-02")
+			dates[dateKey] = true
+		}
+
+		current = next
+	}
+
+	return dates
+}
+
+// GetCronScheduledTimes 获取cron表达式的执行时间列表
+// 从startTime开始，计算count次执行的具体时间
+func GetCronScheduledTimes(expr string, startTime time.Time, count int) []time.Time {
+	var times []time.Time
+
+	if expr == "" || count <= 0 {
+		return times
+	}
+
+	cronExpr, err := cronexpr.Parse(expr)
+	if err != nil {
+		return times
+	}
+
+	// 从 startTime 的前一秒开始计算，确保包含开始时间本身
+	current := startTime.Add(-time.Second)
+
+	for i := 0; i < count; i++ {
+		next := cronExpr.Next(current)
+		// 如果返回了零值时间，停止计算
+		if next.IsZero() {
+			break
+		}
+		times = append(times, next)
+		current = next
+	}
+
+	return times
+}

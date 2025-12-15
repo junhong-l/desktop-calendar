@@ -101,27 +101,41 @@ const (
 	TodoTypeTask        TodoType = "task"        // 任务
 )
 
+// RepeatType 循环类型
+type RepeatType string
+
+const (
+	RepeatTypeNone    RepeatType = "none"    // 不循环
+	RepeatTypeDaily   RepeatType = "daily"   // 每天
+	RepeatTypeWeekly  RepeatType = "weekly"  // 每周
+	RepeatTypeMonthly RepeatType = "monthly" // 每月
+	RepeatTypeCustom  RepeatType = "custom"  // 自定义(cron表达式)
+)
+
 // Todo 待办事项模型
 type Todo struct {
 	ID                   int64     `json:"id"`
 	Title                string    `json:"title"`                // 标题
 	Content              string    `json:"content"`              // 内容(Markdown格式)
 	Type                 TodoType  `json:"type"`                 // 类型
-	StartDate            FlexTime  `json:"startDate"`            // 开始日期
-	EndDate              FlexTime  `json:"endDate"`              // 结束日期
+	StartDate            FlexTime  `json:"startDate"`            // 开始时间
+	EndDate              FlexTime  `json:"endDate"`              // 结束时间
 	IsLunar              bool      `json:"isLunar"`              // 是否农历(生日专用)
 	HideYear             bool      `json:"hideYear"`             // 隐藏年份(生日专用)
-	CronExpr             string    `json:"cronExpr"`             // Crontab表达式
-	RepeatCount          int       `json:"repeatCount"`          // 循环次数(0表示不限次数)
-	CurrentRepeat        int       `json:"currentRepeat"`        // 当前已循环次数
 	AdvanceRemind        int       `json:"advanceRemind"`        // 提前提醒(分钟)，默认15
 	RemindAtStart        bool      `json:"remindAtStart"`        // 到点提醒(开始时间)
 	RemindAtEnd          bool      `json:"remindAtEnd"`          // 结束提醒(结束时间)
 	StartRemindTriggered bool      `json:"startRemindTriggered"` // 开始提醒是否已触发
+	RepeatIndex          int       `json:"repeatIndex"`          // 循环序号(第几次)，0表示非循环
+	RepeatTotal          int       `json:"repeatTotal"`          // 循环总次数，0表示非循环
 	IsCompleted          bool      `json:"isCompleted"`          // 是否完成
 	CompletedAt          *FlexTime `json:"completedAt"`          // 完成时间
 	CreatedAt            FlexTime  `json:"createdAt"`            // 创建时间
 	UpdatedAt            FlexTime  `json:"updatedAt"`            // 更新时间
+	// 以下字段仅用于创建时的批量生成，不存储在数据库
+	RepeatType    RepeatType `json:"repeatType,omitempty"`    // 循环类型
+	CronExpr      string     `json:"cronExpr,omitempty"`      // 自定义cron表达式
+	RepeatEndDate *FlexTime  `json:"repeatEndDate,omitempty"` // 循环终止时间
 }
 
 // Attachment 附件模型
@@ -169,6 +183,12 @@ type TodoListResult struct {
 	Page       int    `json:"page"`
 	PageSize   int    `json:"pageSize"`
 	TotalPages int    `json:"totalPages"`
+}
+
+// WeekTodosResult 本周待办结果
+type WeekTodosResult struct {
+	Overdue []Todo `json:"overdue"` // 逾期待办
+	Todos   []Todo `json:"todos"`   // 本周待办
 }
 
 // CronNextRun Cron表达式下次执行时间

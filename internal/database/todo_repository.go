@@ -21,20 +21,14 @@ func NewTodoRepository(db *sql.DB) *TodoRepository {
 // Create 创建待办事项
 func (r *TodoRepository) Create(todo *models.Todo) (int64, error) {
 	query := `
-		INSERT INTO todos (title, content, type, start_date, end_date, is_lunar, hide_year, cron_expr, 
-			repeat_count, current_repeat, advance_remind, remind_at_start, remind_at_end, start_remind_triggered, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO todos (title, content, type, start_date, end_date, is_lunar, hide_year, 
+			advance_remind, remind_at_start, remind_at_end, start_remind_triggered, repeat_index, repeat_total, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	now := time.Now()
 	// 设置默认值
 	if todo.AdvanceRemind <= 0 {
 		todo.AdvanceRemind = 15
-	}
-	if todo.RepeatCount <= 0 {
-		todo.RepeatCount = 1
-	}
-	if todo.CurrentRepeat <= 0 {
-		todo.CurrentRepeat = 1
 	}
 	result, err := r.db.Exec(query,
 		todo.Title,
@@ -44,13 +38,12 @@ func (r *TodoRepository) Create(todo *models.Todo) (int64, error) {
 		todo.EndDate,
 		todo.IsLunar,
 		todo.HideYear,
-		todo.CronExpr,
-		todo.RepeatCount,
-		todo.CurrentRepeat,
 		todo.AdvanceRemind,
 		todo.RemindAtStart,
 		todo.RemindAtEnd,
 		todo.StartRemindTriggered,
+		todo.RepeatIndex,
+		todo.RepeatTotal,
 		now,
 		now,
 	)
@@ -71,9 +64,6 @@ func (r *TodoRepository) Update(todo *models.Todo) error {
 			end_date = ?,
 			is_lunar = ?,
 			hide_year = ?,
-			cron_expr = ?,
-			repeat_count = ?,
-			current_repeat = ?,
 			advance_remind = ?,
 			remind_at_start = ?,
 			remind_at_end = ?,
@@ -88,9 +78,6 @@ func (r *TodoRepository) Update(todo *models.Todo) error {
 		todo.EndDate,
 		todo.IsLunar,
 		todo.HideYear,
-		todo.CronExpr,
-		todo.RepeatCount,
-		todo.CurrentRepeat,
 		todo.AdvanceRemind,
 		todo.RemindAtStart,
 		todo.RemindAtEnd,
@@ -110,8 +97,8 @@ func (r *TodoRepository) Delete(id int64) error {
 func (r *TodoRepository) GetByID(id int64) (*models.Todo, error) {
 	query := `
 		SELECT id, title, content, type, start_date, end_date, is_lunar, hide_year, 
-			   cron_expr, repeat_count, current_repeat, advance_remind, remind_at_start, remind_at_end,
-			   start_remind_triggered, is_completed, completed_at, created_at, updated_at
+			   advance_remind, remind_at_start, remind_at_end,
+			   start_remind_triggered, repeat_index, repeat_total, is_completed, completed_at, created_at, updated_at
 		FROM todos WHERE id = ?
 	`
 	todo := &models.Todo{}
@@ -125,13 +112,12 @@ func (r *TodoRepository) GetByID(id int64) (*models.Todo, error) {
 		&todo.EndDate,
 		&todo.IsLunar,
 		&todo.HideYear,
-		&todo.CronExpr,
-		&todo.RepeatCount,
-		&todo.CurrentRepeat,
 		&todo.AdvanceRemind,
 		&todo.RemindAtStart,
 		&todo.RemindAtEnd,
 		&todo.StartRemindTriggered,
+		&todo.RepeatIndex,
+		&todo.RepeatTotal,
 		&todo.IsCompleted,
 		&completedAt,
 		&todo.CreatedAt,
@@ -182,13 +168,11 @@ func (r *TodoRepository) List(filter models.TodoFilter) (*models.TodoListResult,
 		where += " AND type IN (" + placeholders + ")"
 	}
 
-	if filter.Completed != nil {
-		where += " AND is_completed = ?"
-		if *filter.Completed {
-			args = append(args, 1)
-		} else {
-			args = append(args, 0)
-		}
+	// 默认只查询未完成的待办，除非明确指定 completed=true
+	if filter.Completed != nil && *filter.Completed {
+		where += " AND is_completed = 1"
+	} else {
+		where += " AND is_completed = 0"
 	}
 
 	// 获取总数
@@ -211,8 +195,8 @@ func (r *TodoRepository) List(filter models.TodoFilter) (*models.TodoListResult,
 	// 查询数据
 	query := `
 		SELECT id, title, content, type, start_date, end_date, is_lunar, hide_year, 
-			   cron_expr, repeat_count, current_repeat, advance_remind, remind_at_start, remind_at_end,
-			   start_remind_triggered, is_completed, completed_at, created_at, updated_at
+			   advance_remind, remind_at_start, remind_at_end,
+			   start_remind_triggered, repeat_index, repeat_total, is_completed, completed_at, created_at, updated_at
 		FROM todos ` + where + `
 		ORDER BY start_date ASC
 		LIMIT ? OFFSET ?
@@ -238,13 +222,12 @@ func (r *TodoRepository) List(filter models.TodoFilter) (*models.TodoListResult,
 			&todo.EndDate,
 			&todo.IsLunar,
 			&todo.HideYear,
-			&todo.CronExpr,
-			&todo.RepeatCount,
-			&todo.CurrentRepeat,
 			&todo.AdvanceRemind,
 			&todo.RemindAtStart,
 			&todo.RemindAtEnd,
 			&todo.StartRemindTriggered,
+			&todo.RepeatIndex,
+			&todo.RepeatTotal,
 			&todo.IsCompleted,
 			&completedAt,
 			&todo.CreatedAt,
@@ -278,8 +261,8 @@ func (r *TodoRepository) List(filter models.TodoFilter) (*models.TodoListResult,
 func (r *TodoRepository) GetByDateRange(start, end time.Time) ([]models.Todo, error) {
 	query := `
 		SELECT id, title, content, type, start_date, end_date, is_lunar, hide_year, 
-			   cron_expr, repeat_count, current_repeat, advance_remind, remind_at_start, remind_at_end,
-			   start_remind_triggered, is_completed, completed_at, created_at, updated_at
+			   advance_remind, remind_at_start, remind_at_end,
+			   start_remind_triggered, repeat_index, repeat_total, is_completed, completed_at, created_at, updated_at
 		FROM todos 
 		WHERE (start_date BETWEEN ? AND ?) OR (end_date BETWEEN ? AND ?)
 			  OR (start_date <= ? AND end_date >= ?)
@@ -294,20 +277,17 @@ func (r *TodoRepository) GetByDateRange(start, end time.Time) ([]models.Todo, er
 	return r.scanTodos(rows)
 }
 
-// GetPendingTodos 获取待处理的待办(今天和过期)
+// GetPendingTodos 获取所有待处理的待办(未完成的)
 func (r *TodoRepository) GetPendingTodos() ([]models.Todo, error) {
-	now := time.Now()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
-
 	query := `
 		SELECT id, title, content, type, start_date, end_date, is_lunar, hide_year, 
-			   cron_expr, repeat_count, current_repeat, advance_remind, remind_at_start, remind_at_end,
-			   start_remind_triggered, is_completed, completed_at, created_at, updated_at
+			   advance_remind, remind_at_start, remind_at_end,
+			   start_remind_triggered, repeat_index, repeat_total, is_completed, completed_at, created_at, updated_at
 		FROM todos 
-		WHERE is_completed = 0 AND start_date <= ?
+		WHERE is_completed = 0
 		ORDER BY start_date ASC
 	`
-	rows, err := r.db.Query(query, today)
+	rows, err := r.db.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -334,8 +314,8 @@ func (r *TodoRepository) GetWeekTodos() (*models.WeekTodos, error) {
 	// 获取逾期未完成
 	overdueQuery := `
 		SELECT id, title, content, type, start_date, end_date, is_lunar, hide_year, 
-			   cron_expr, repeat_count, current_repeat, advance_remind, remind_at_start, remind_at_end,
-			   start_remind_triggered, is_completed, completed_at, created_at, updated_at
+			   advance_remind, remind_at_start, remind_at_end,
+			   start_remind_triggered, repeat_index, repeat_total, is_completed, completed_at, created_at, updated_at
 		FROM todos 
 		WHERE is_completed = 0 AND end_date < ?
 		ORDER BY start_date ASC
@@ -357,6 +337,59 @@ func (r *TodoRepository) GetWeekTodos() (*models.WeekTodos, error) {
 		Todos:     todos,
 		Overdue:   overdue,
 	}, nil
+}
+
+// GetWeekTodosNew 获取本周待办(新版，返回逾期和本周分开)
+func (r *TodoRepository) GetWeekTodosNew() ([]models.Todo, []models.Todo, error) {
+	now := time.Now()
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	weekStart := time.Date(now.Year(), now.Month(), now.Day()-weekday+1, 0, 0, 0, 0, now.Location())
+	weekEnd := weekStart.AddDate(0, 0, 6).Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+
+	// 本周待办（未完成）
+	todosQuery := `
+		SELECT id, title, content, type, start_date, end_date, is_lunar, hide_year, 
+			   advance_remind, remind_at_start, remind_at_end,
+			   start_remind_triggered, repeat_index, repeat_total, is_completed, completed_at, created_at, updated_at
+		FROM todos 
+		WHERE is_completed = 0 AND start_date >= ? AND start_date <= ?
+		ORDER BY start_date ASC
+	`
+	todosRows, err := r.db.Query(todosQuery, weekStart, weekEnd)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer todosRows.Close()
+
+	todos, err := r.scanTodos(todosRows)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// 逾期未完成
+	overdueQuery := `
+		SELECT id, title, content, type, start_date, end_date, is_lunar, hide_year, 
+			   advance_remind, remind_at_start, remind_at_end,
+			   start_remind_triggered, repeat_index, repeat_total, is_completed, completed_at, created_at, updated_at
+		FROM todos 
+		WHERE is_completed = 0 AND start_date < ?
+		ORDER BY start_date ASC
+	`
+	overdueRows, err := r.db.Query(overdueQuery, weekStart)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer overdueRows.Close()
+
+	overdue, err := r.scanTodos(overdueRows)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return overdue, todos, nil
 }
 
 // MarkCompleted 标记完成
@@ -387,8 +420,8 @@ func (r *TodoRepository) GetTodayStartRemindTodos() ([]models.Todo, error) {
 
 	query := `
 		SELECT id, title, content, type, start_date, end_date, is_lunar, hide_year, 
-			   cron_expr, repeat_count, current_repeat, advance_remind, remind_at_start, remind_at_end,
-			   start_remind_triggered, is_completed, completed_at, created_at, updated_at
+			   advance_remind, remind_at_start, remind_at_end,
+			   start_remind_triggered, repeat_index, repeat_total, is_completed, completed_at, created_at, updated_at
 		FROM todos 
 		WHERE is_completed = 0 
 		  AND remind_at_start = 1 
@@ -403,13 +436,6 @@ func (r *TodoRepository) GetTodayStartRemindTodos() ([]models.Todo, error) {
 	defer rows.Close()
 
 	return r.scanTodos(rows)
-}
-
-// IncrementRepeatCount 增加循环次数
-func (r *TodoRepository) IncrementRepeatCount(id int64) error {
-	query := "UPDATE todos SET current_repeat = current_repeat + 1 WHERE id = ?"
-	_, err := r.db.Exec(query, id)
-	return err
 }
 
 // scanTodos 扫描待办列表
@@ -427,13 +453,12 @@ func (r *TodoRepository) scanTodos(rows *sql.Rows) ([]models.Todo, error) {
 			&todo.EndDate,
 			&todo.IsLunar,
 			&todo.HideYear,
-			&todo.CronExpr,
-			&todo.RepeatCount,
-			&todo.CurrentRepeat,
 			&todo.AdvanceRemind,
 			&todo.RemindAtStart,
 			&todo.RemindAtEnd,
 			&todo.StartRemindTriggered,
+			&todo.RepeatIndex,
+			&todo.RepeatTotal,
 			&todo.IsCompleted,
 			&completedAt,
 			&todo.CreatedAt,

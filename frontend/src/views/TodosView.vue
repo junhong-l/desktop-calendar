@@ -2,10 +2,16 @@
   <div class="todos-view">
     <div class="page-header">
       <h2>待办事项</h2>
-      <el-button type="primary" @click="handleCreate">
-        <el-icon><Plus /></el-icon>
-        新建待办
-      </el-button>
+      <div class="header-actions">
+        <el-button @click="handleRefresh" :loading="todoStore.loading">
+          <el-icon><Refresh /></el-icon>
+          刷新
+        </el-button>
+        <el-button type="primary" @click="handleCreate">
+          <el-icon><Plus /></el-icon>
+          新建待办
+        </el-button>
+      </div>
     </div>
 
     <!-- 筛选栏 -->
@@ -65,7 +71,7 @@
           </template>
         </el-table-column>
         
-        <el-table-column label="标题" min-width="280">
+        <el-table-column label="标题" min-width="250">
           <template #default="{ row }">
             <div class="todo-title-cell">
               <div class="title-row">
@@ -74,14 +80,14 @@
                 </el-tag>
                 <span class="title">{{ row.title }}</span>
               </div>
-              <div class="time-range">{{ formatDateTimeRange(row.startDate, row.endDate) }}</div>
+              <div class="time-range">{{ formatTimeRange(row.startDate, row.endDate) }}</div>
             </div>
           </template>
         </el-table-column>
         
-        <el-table-column label="循环" width="100" align="center">
+        <el-table-column label="循环" width="80" align="center">
           <template #default="{ row }">
-            <span>{{ row.currentRepeat || 1 }}/{{ row.repeatCount || 1 }}</span>
+            <span class="repeat-info">{{ row.repeatIndex || 1 }}/{{ row.repeatTotal || 1 }}</span>
           </template>
         </el-table-column>
         
@@ -100,15 +106,20 @@
         </el-table-column>
       </el-table>
 
+      <!-- 空状态 -->
+      <div v-if="!todoStore.loading && todoStore.todos.length === 0" class="empty-state">
+        <el-empty description="暂无待办事项" />
+      </div>
+      
       <!-- 分页 -->
       <div class="pagination-bar">
         <el-pagination
-          v-model:current-page="todoStore.page"
+          v-model:current-page="filter.page"
           v-model:page-size="filter.pageSize"
           :page-sizes="[10, 20, 50]"
           :total="todoStore.total"
           layout="total, sizes, prev, pager, next, jumper"
-          @size-change="handlePageSizeChange"
+          @size-change="handleSearch"
           @current-change="handlePageChange"
         />
       </div>
@@ -124,9 +135,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, nextTick } from 'vue'
+import { ref, reactive, onMounted, nextTick, computed } from 'vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Plus, Search, Edit, Delete, Check } from '@element-plus/icons-vue'
+import { Plus, Search, Edit, Delete, Check, Refresh } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import TodoFormDialog from '@/components/TodoFormDialog.vue'
 import { useTodoStore } from '@/stores/todo'
@@ -145,6 +156,7 @@ const filter = reactive({
   year: null as number | null,
   month: null as number | null,
   types: [] as string[],
+  page: 1,
   pageSize: 10
 })
 
@@ -199,75 +211,89 @@ function isOverdue(todo: Todo): boolean {
   return !todo.isCompleted && dayjs(todo.endDate).isBefore(dayjs())
 }
 
-// 获取状态文字：未开始 / 进行中 / 超时
-function getStatusText(todo: Todo): string {
-  const now = dayjs()
-  const start = dayjs(todo.startDate)
-  const end = dayjs(todo.endDate)
+// 格式化计划执行时间
+function formatScheduledTime(time: string): string {
+  if (!time) return ''
+  return dayjs(time).format('YYYY-MM-DD HH:mm')
+}
+
+// 格式化时间范围（开始时间 - 结束时间）
+function formatTimeRange(startDate: string, endDate: string): string {
+  if (!startDate) return ''
+  const start = dayjs(startDate)
+  const end = endDate ? dayjs(endDate) : null
   
-  // 超过结束时间且未完成
-  if (now.isAfter(end)) {
-    return '超时'
+  const startStr = start.format('YYYY年MM月DD日 HH:mm')
+  if (end) {
+    const endStr = end.format('YYYY年MM月DD日 HH:mm')
+    return `${startStr} - ${endStr}`
   }
-  // 还没到开始时间
-  if (now.isBefore(start, 'minute')) {
-    return '未开始'
+  return startStr
+}
+
+// 获取状态文字：未开始 / 进行中 / 即将开始 / 已超时
+function getStatusText(row: any): string {
+  const now = dayjs()
+  const startDate = dayjs(row.startDate)
+  const endDate = dayjs(row.endDate)
+  
+  // 已过结束时间 - 超时
+  if (endDate.isBefore(now)) {
+    return '已超时'
   }
-  return '进行中'
+  // 已过开始时间，未到结束时间 - 进行中
+  if (startDate.isBefore(now) && endDate.isAfter(now)) {
+    return '进行中'
+  }
+  // 开始时间在24小时内 - 即将开始
+  if (startDate.diff(now, 'hour') < 24) {
+    return '即将开始'
+  }
+  return '未开始'
 }
 
 // 获取状态标签类型
-function getStatusType(todo: Todo): 'info' | 'warning' | 'danger' {
+function getStatusType(row: any): 'info' | 'warning' | 'danger' | 'success' | '' {
   const now = dayjs()
-  const start = dayjs(todo.startDate)
-  const end = dayjs(todo.endDate)
+  const startDate = dayjs(row.startDate)
+  const endDate = dayjs(row.endDate)
   
-  // 超过结束时间且未完成
-  if (now.isAfter(end)) {
+  // 已过结束时间 - 红色
+  if (endDate.isBefore(now)) {
     return 'danger'
   }
-  // 还没到开始时间
-  if (now.isBefore(start, 'minute')) {
-    return 'info'
+  // 进行中 - 绿色
+  if (startDate.isBefore(now) && endDate.isAfter(now)) {
+    return 'success'
   }
-  return 'warning'
+  // 即将开始 - 蓝色（primary）
+  if (startDate.diff(now, 'hour') < 24) {
+    return ''
+  }
+  return 'info'
 }
 
 function handleSearch() {
-  // 确保年份是数字（处理 allow-create 产生的字符串）
-  if (filter.year && typeof filter.year === 'string') {
-    const yearNum = parseInt((filter.year as unknown as string).replace(/\D/g, ''), 10)
-    filter.year = isNaN(yearNum) ? null : yearNum
-  }
-  todoStore.fetchTodos({
-    keyword: filter.keyword || undefined,
-    year: filter.year || undefined,
-    month: filter.month || undefined,
-    types: filter.types.length ? filter.types : undefined,
-    completed: false,
-    page: 1,
-    pageSize: filter.pageSize
-  })
+  filter.page = 1  // 重置到第一页
+  fetchTodos()
 }
 
-function handlePageSizeChange(size: number) {
-  filter.pageSize = size
-  handleSearch()
+function handleRefresh() {
+  fetchTodos()
 }
 
 function handlePageChange(page: number) {
-  // 确保年份是数字
-  if (filter.year && typeof filter.year === 'string') {
-    const yearNum = parseInt((filter.year as unknown as string).replace(/\D/g, ''), 10)
-    filter.year = isNaN(yearNum) ? null : yearNum
-  }
+  filter.page = page
+  fetchTodos()
+}
+
+function fetchTodos() {
   todoStore.fetchTodos({
-    keyword: filter.keyword || undefined,
-    year: filter.year || undefined,
-    month: filter.month || undefined,
-    types: filter.types.length ? filter.types : undefined,
-    completed: false,
-    page,
+    keyword: filter.keyword,
+    year: filter.year || 0,
+    month: filter.month || 0,
+    types: filter.types,
+    page: filter.page,
     pageSize: filter.pageSize
   })
 }
@@ -296,14 +322,14 @@ async function handleDelete(todo: Todo) {
   }
 }
 
-async function handleComplete(todo: Todo) {
+async function handleComplete(row: Todo) {
   try {
-    await ElMessageBox.confirm(`确定要将"${todo.title}"标记为已完成吗？`, '确认完成', {
+    await ElMessageBox.confirm(`确定要将"${row.title}"标记为已完成吗？`, '确认完成', {
       type: 'info'
     })
-    await todoStore.markCompleted(todo.id, true)
+    await todoStore.markTodoCompleted(row.id, true)
     ElMessage.success('已标记完成，待办已移至历史记录')
-    handleSearch() // 刷新列表，已完成的不再显示
+    fetchTodos() // 刷新列表
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error('操作失败')
@@ -312,7 +338,7 @@ async function handleComplete(todo: Todo) {
 }
 
 function handleSaved() {
-  handleSearch()
+  fetchTodos()
 }
 
 // 月份下拉框展开时滚动到当前月份
@@ -333,7 +359,7 @@ function handleMonthDropdownVisible(visible: boolean) {
 
 onMounted(() => {
   fetchTodoTypes()
-  todoStore.fetchTodos({ completed: false })
+  fetchTodos()
 })
 </script>
 
@@ -373,6 +399,11 @@ onMounted(() => {
     }
   }
   
+  .repeat-info {
+    font-size: 13px;
+    color: #606266;
+  }
+  
   .is-overdue {
     color: #F56C6C;
   }
@@ -386,5 +417,10 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   padding: 20px 0 0;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
 }
 </style>

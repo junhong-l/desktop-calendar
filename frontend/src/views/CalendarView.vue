@@ -54,10 +54,10 @@
               v-for="(todo, index) in day.todos.slice(0, 3)" 
               :key="todo.id"
               class="todo-indicator"
-              :class="`todo-type-${todo.type}`"
+              :class="[`todo-type-${todo.type}`, { 'is-completed': todo.isCompleted }]"
             >
-              <span class="todo-dot" :style="{ background: getTodoTypeColor(todo.type) }"></span>
-              <span class="todo-title">{{ todo.title }}</span>
+              <span class="todo-dot" :style="{ background: todo.isCompleted ? '#c0c4cc' : getTodoTypeColor(todo.type) }"></span>
+              <span class="todo-title" :class="{ 'completed': todo.isCompleted }">{{ todo.title }}</span>
             </div>
             <div v-if="day.todoCount > 3" class="more-todos">
               +{{ day.todoCount - 3 }} 更多
@@ -309,8 +309,15 @@ function handleCreateFromDay(date: string) {
   todoDialogVisible.value = true
 }
 
-function handleTodoSaved() {
-  fetchCalendar()
+async function handleTodoSaved() {
+  await fetchCalendar()
+  // 如果日期详情弹窗还开着，需要更新其中的数据
+  if (dayDetailVisible.value && selectedDay.value) {
+    const updatedDay = calendarDays.value.find(d => d.date === selectedDay.value?.date)
+    if (updatedDay) {
+      selectedDay.value = updatedDay
+    }
+  }
 }
 
 // 点击其他地方关闭菜单
@@ -478,7 +485,16 @@ onUnmounted(() => {
       text-overflow: ellipsis;
       white-space: nowrap;
       color: #606266;
+
+      &.completed {
+        text-decoration: line-through;
+        color: #c0c4cc;
+      }
     }
+  }
+
+  &.is-completed {
+    opacity: 0.6;
   }
 
   .more-todos {

@@ -135,7 +135,7 @@ func (n *Notifier) checkAndNotify() {
 			key := n.getNotifyKey(todo.ID, NotifyAdvance, now)
 
 			if !n.hasNotified(key) && n.isTimeMatch(now, advanceTime) {
-				title := fmt.Sprintf("⏰ 提前提醒: %s", todo.Title)
+				title := fmt.Sprintf("⏰提前提醒: %s", todo.Title)
 				message := fmt.Sprintf("将在 %d 分钟后开始", todo.AdvanceRemind)
 				n.sendWindowsNotification(todo, title, message, playSound, soundFile, NotifyAdvance)
 				n.markNotified(key)
@@ -147,7 +147,7 @@ func (n *Notifier) checkAndNotify() {
 			key := n.getNotifyKey(todo.ID, NotifyStart, now)
 
 			if !n.hasNotified(key) && n.isTimeMatch(now, startTime) {
-				title := fmt.Sprintf("🔔 开始: %s", todo.Title)
+				title := fmt.Sprintf("🔔开始: %s", todo.Title)
 				message := "任务已开始"
 				if todo.Content != "" {
 					message = todo.Content
@@ -162,8 +162,8 @@ func (n *Notifier) checkAndNotify() {
 			key := n.getNotifyKey(todo.ID, NotifyEnd, now)
 
 			if !n.hasNotified(key) && n.isTimeMatch(now, endTime) {
-				title := fmt.Sprintf("✅ 结束: %s", todo.Title)
-				message := "任务已结束"
+				title := fmt.Sprintf("✅结束提醒: %s", todo.Title)
+				message := "已到任务结束时间。"
 				n.sendWindowsNotification(todo, title, message, playSound, soundFile, NotifyEnd)
 				n.markNotified(key)
 			}
@@ -227,6 +227,8 @@ func (n *Notifier) sendWindowsNotification(todo models.Todo, title, message stri
 			"--notify-message", message,
 			"--notify-type", typeLabel,
 			"--notify-todo", fmt.Sprintf("%d", todo.ID),
+			"--notify-start", todo.StartDate.Time.Format("2006-01-02 15:04"),
+			"--notify-end", todo.EndDate.Time.Format("2006-01-02 15:04"),
 		)
 	}()
 
@@ -236,11 +238,11 @@ func (n *Notifier) sendWindowsNotification(todo models.Todo, title, message stri
 
 // sendNotification 发送通知
 func (n *Notifier) sendNotification(todo models.Todo) {
-	// 构建通知数据（不再增加循环次数，循环次数只在任务真正循环时增加）
+	// 构建通知数据
 	notification := models.NotificationData{
 		Todo:         todo,
-		CurrentCount: todo.CurrentRepeat,
-		TotalCount:   todo.RepeatCount,
+		CurrentCount: 1,
+		TotalCount:   1,
 		Message:      todo.Title,
 	}
 
@@ -261,8 +263,8 @@ func (n *Notifier) GetPendingNotifications() ([]models.NotificationData, error) 
 	for _, todo := range todos {
 		notifications = append(notifications, models.NotificationData{
 			Todo:         todo,
-			CurrentCount: todo.CurrentRepeat,
-			TotalCount:   todo.RepeatCount,
+			CurrentCount: 1,
+			TotalCount:   1,
 			Message:      todo.Title,
 		})
 	}

@@ -8,7 +8,7 @@
     <div class="popup-content" @click="viewDetail">
       <h3 class="popup-title">{{ title }}</h3>
       <p class="popup-message" v-if="message">{{ message }}</p>
-      <p class="popup-time">{{ formatTime() }}</p>
+      <p class="popup-time">{{ formatTimeRange() }}</p>
     </div>
   </div>
 </template>
@@ -22,7 +22,8 @@ const title = ref('待办提醒')
 const message = ref('')
 const todoId = ref(0)
 const notifyType = ref('提醒')
-const startTime = ref(new Date())
+const startTime = ref('')
+const endTime = ref('')
 
 function getIcon() {
   switch (notifyType.value) {
@@ -33,11 +34,27 @@ function getIcon() {
   }
 }
 
-function formatTime() {
-  return startTime.value.toLocaleTimeString('zh-CN', { 
-    hour: '2-digit', 
-    minute: '2-digit' 
-  })
+function formatTimeRange() {
+  if (!startTime.value) return ''
+  
+  // 格式化开始时间
+  const startStr = formatDateTime(startTime.value)
+  
+  // 格式化结束时间
+  if (endTime.value) {
+    const endStr = formatDateTime(endTime.value)
+    return `${startStr} - ${endStr}`
+  }
+  return startStr
+}
+
+// 将 "2006-01-02 15:04" 格式转换为 "YYYY年MM月DD日 HH:mm"
+function formatDateTime(dateStr: string): string {
+  if (!dateStr) return ''
+  const [date, time] = dateStr.split(' ')
+  if (!date) return ''
+  const [year, month, day] = date.split('-')
+  return `${year}年${month}月${day}日 ${time || ''}`
 }
 
 async function viewDetail() {
@@ -62,7 +79,8 @@ onMounted(() => {
     message.value = data.message || ''
     todoId.value = data.todoId || 0
     notifyType.value = data.type || '提醒'
-    startTime.value = new Date()
+    startTime.value = data.startTime || ''
+    endTime.value = data.endTime || ''
   })
 
   // 自动关闭（可配置）

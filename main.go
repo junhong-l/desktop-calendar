@@ -44,6 +44,8 @@ func main() {
 	notifyMessage := flag.String("notify-message", "", "通知消息")
 	notifyType := flag.String("notify-type", "提醒", "通知类型")
 	notifyTodoId := flag.Int64("notify-todo", 0, "关联的待办ID")
+	notifyStartTime := flag.String("notify-start", "", "开始时间")
+	notifyEndTime := flag.String("notify-end", "", "结束时间")
 	todoId := flag.Int64("todo", 0, "打开指定待办的详情")
 	flag.Parse()
 
@@ -63,7 +65,7 @@ func main() {
 	if *widgetMode {
 		runWidgetWindow(application)
 	} else if *notifyMode {
-		runNotificationPopup(application, *notifyTitle, *notifyMessage, *notifyType, *notifyTodoId)
+		runNotificationPopup(application, *notifyTitle, *notifyMessage, *notifyType, *notifyTodoId, *notifyStartTime, *notifyEndTime)
 	} else {
 		runMainWindow(application, db)
 	}
@@ -130,13 +132,16 @@ func runWidgetWindow(application *app.App) {
 // 保存通知弹窗的参数
 var popupTitle, popupMessage, popupType string
 var popupTodoId int64
+var popupStartTime, popupEndTime string
 
 // runNotificationPopup 启动通知弹窗窗口
-func runNotificationPopup(application *app.App, title, message, notifyType string, todoId int64) {
+func runNotificationPopup(application *app.App, title, message, notifyType string, todoId int64, startTime, endTime string) {
 	popupTitle = title
 	popupMessage = message
 	popupType = notifyType
 	popupTodoId = todoId
+	popupStartTime = startTime
+	popupEndTime = endTime
 
 	// 创建窗口模式服务
 	windowModeService := app.NewWindowModeService("notification")
@@ -148,7 +153,7 @@ func runNotificationPopup(application *app.App, title, message, notifyType strin
 		DisableResize: true,
 		Frameless:     true,
 		AlwaysOnTop:   true,
-		StartHidden:   false,
+		StartHidden:   true, // 启动时隐藏，等移动到正确位置后再显示
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -170,18 +175,22 @@ func runNotificationPopup(application *app.App, title, message, notifyType strin
 			runtime.WindowExecJS(ctx, `window.location.hash = '#/notification-popup'`)
 			// 发送通知数据到前端
 			go func() {
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(300 * time.Millisecond)
 				// 再次确保路由正确
 				runtime.WindowExecJS(ctx, `window.location.hash = '#/notification-popup'`)
-				time.Sleep(200 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond)
 				runtime.EventsEmit(ctx, "notification:show", map[string]interface{}{
-					"title":   popupTitle,
-					"message": popupMessage,
-					"type":    popupType,
-					"todoId":  popupTodoId,
+					"title":     popupTitle,
+					"message":   popupMessage,
+					"type":      popupType,
+					"todoId":    popupTodoId,
+					"startTime": popupStartTime,
+					"endTime":   popupEndTime,
 				})
-				// 定位到右下角并置顶
+				// 先定位到右下角
 				utils.MoveWindowToBottomRight("待办通知")
+				// 然后显示窗口并置顶
+				runtime.WindowShow(ctx)
 				utils.SetWindowTopmost("待办通知")
 			}()
 

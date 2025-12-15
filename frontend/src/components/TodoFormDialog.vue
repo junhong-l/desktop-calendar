@@ -77,7 +77,6 @@
             format="YYYY-MM-DD HH:mm"
             value-format="YYYY-MM-DDTHH:mm:ss"
             placeholder="选择开始时间"
-            @change="onStartDateChange"
           />
         </el-form-item>
 
@@ -120,17 +119,18 @@
             format="YYYY-MM-DD HH:mm"
             value-format="YYYY-MM-DDTHH:mm:ss"
             placeholder="选择结束时间"
-            @change="onEndDateChange"
           />
         </el-form-item>
 
-        <el-form-item label="循环次数">
-          <el-input-number 
-            v-model="form.repeatCount" 
-            :min="1" 
-            :max="999" 
+        <el-form-item v-if="form.cronExpr" label="循环终止时间">
+          <el-date-picker
+            v-model="form.repeatEndDate"
+            type="datetime"
+            format="YYYY-MM-DD HH:mm"
+            value-format="YYYY-MM-DDTHH:mm:ss"
+            placeholder="选择循环终止时间"
           />
-          <span class="form-hint">共执行 {{ form.repeatCount || 1 }} 次</span>
+          <span v-if="repeatCountPreview > 0" class="form-hint">将创建 {{ repeatCountPreview }} 条待办记录</span>
         </el-form-item>
 
         <el-form-item label="提醒设置">
@@ -229,6 +229,7 @@ const cronNextRuns = ref<CronNextRun>({ expression: '', nextRuns: [], isValid: f
 const fileList = ref<any[]>([])
 const lunarDateText = ref('')
 const pastedImages = ref<File[]>([])
+const repeatCountPreview = ref(0)
 
 const mdToolbars = [
   'bold', 'italic', 'strikeThrough', '-',
@@ -248,7 +249,8 @@ const form = reactive({
   isLunar: false,
   hideYear: false,
   cronExpr: '',
-  repeatCount: 1,
+  repeatType: 'none',  // 循环类型
+  repeatEndDate: '',   // 循环终止时间
   advanceRemind: 15,
   remindAtStart: true,
   remindAtEnd: true
@@ -268,6 +270,7 @@ watch(() => props.visible, async (val) => {
   if (val) {
     await fetchTodoTypes()
     if (props.todo) {
+      // 编辑模式：由于循环待办已经拆分为多条独立记录，这里不再需要恢复循环设置
       Object.assign(form, {
         id: props.todo.id,
         title: props.todo.title,
@@ -277,21 +280,14 @@ watch(() => props.visible, async (val) => {
         endDate: props.todo.endDate,
         isLunar: props.todo.isLunar,
         hideYear: props.todo.hideYear,
-        cronExpr: props.todo.cronExpr,
-        repeatCount: props.todo.repeatCount || 1,
+        cronExpr: '',  // 编辑时不显示循环设置
+        repeatType: 'none',
+        repeatEndDate: '',
         advanceRemind: props.todo.advanceRemind ?? 15,
         remindAtStart: props.todo.remindAtStart ?? true,
         remindAtEnd: props.todo.remindAtEnd ?? false
       })
-      // 根据 cronExpr 设置 cronPreset
-      if (props.todo.cronExpr) {
-        // 尝试匹配预设值
-        const presets = ['0 9 * * *', '0 9 * * 1', '0 9 1 * *', '0 9 1 1 *', '0 9 * * 1-5']
-        cronPreset.value = presets.includes(props.todo.cronExpr) ? props.todo.cronExpr : props.todo.cronExpr
-        parseCronExpr()
-      } else {
-        cronPreset.value = 'none'
-      }
+      cronPreset.value = 'none'
     } else {
       resetForm()
       if (props.defaultDate) {
@@ -358,12 +354,14 @@ function resetForm() {
   form.isLunar = false
   form.hideYear = false
   form.cronExpr = ''
-  form.repeatCount = 1
+  form.repeatType = 'none'
+  form.repeatEndDate = ''
   form.advanceRemind = 15
   form.remindAtStart = true
   form.remindAtEnd = true
   cronPreset.value = 'none'
   cronNextRuns.value = { expression: '', nextRuns: [], isValid: false }
+  repeatCountPreview.value = 0
   fileList.value = []
   pastedImages.value = []
   // 清理预览URL
@@ -374,63 +372,41 @@ function resetForm() {
 function handleCronPreset(value: string) {
   // "none" 表示不重复，实际 cronExpr 应为空
   form.cronExpr = value === 'none' ? '' : value
+  form.repeatType = value === 'none' ? 'none' : 'custom'
   onCronExprChange()
 }
 
 async function onCronExprChange() {
   await parseCronExpr()
-  // 如果有开始时间和循环次数，重新计算结束时间
-  if (form.startDate && form.repeatCount > 0 && form.cronExpr) {
-    await calculateEndDateFromRepeatCount()
-  }
+  // 更新循环次数预览
+  await updateRepeatCountPreview()
 }
 
-async function onStartDateChange() {
-  // 如果有 cron 表达式和循环次数，重新计算结束时间
-  if (form.cronExpr && form.repeatCount > 0) {
-    await calculateEndDateFromRepeatCount()
+async function updateRepeatCountPreview() {
+  if (!form.startDate || !form.cronExpr || !form.repeatEndDate) {
+    repeatCountPreview.value = 0
+    return
   }
-}
-
-async function onRepeatCountChange() {
-  // 根据循环次数计算结束时间
-  if (form.startDate && form.cronExpr) {
-    await calculateEndDateFromRepeatCount()
-  }
-}
-
-async function onEndDateChange() {
-  // 根据结束时间计算循环次数
-  if (form.startDate && form.cronExpr && form.endDate) {
-    await calculateRepeatCountFromEndDate()
-  }
-}
-
-async function calculateEndDateFromRepeatCount() {
-  if (!form.startDate || !form.cronExpr || form.repeatCount <= 0) return
   
   try {
-    const endDate = await api.CalculateEndDate(form.startDate, form.cronExpr, form.repeatCount)
-    if (endDate) {
-      form.endDate = dayjs(endDate).format('YYYY-MM-DDTHH:mm:ss')
-    }
-  } catch (error) {
-    console.error('Failed to calculate end date:', error)
-  }
-}
-
-async function calculateRepeatCountFromEndDate() {
-  if (!form.startDate || !form.cronExpr || !form.endDate) return
-  
-  try {
-    const count = await api.CalculateRemindCount(form.startDate, form.cronExpr, form.endDate)
-    if (count > 0) {
-      form.repeatCount = count
-    }
+    const count = await api.CalculateRemindCount(form.startDate, form.cronExpr, form.repeatEndDate)
+    repeatCountPreview.value = count > 0 ? count : 0
   } catch (error) {
     console.error('Failed to calculate repeat count:', error)
+    repeatCountPreview.value = 0
   }
 }
+
+// 监听循环终止时间变化，更新预览
+watch(() => form.repeatEndDate, () => {
+  updateRepeatCountPreview()
+})
+
+watch(() => form.startDate, () => {
+  if (form.cronExpr) {
+    updateRepeatCountPreview()
+  }
+})
 
 async function parseCronExpr() {
   if (!form.cronExpr) {
@@ -542,18 +518,35 @@ async function handleSubmit() {
     }
 
     const todoData = {
-      ...form,
-      endDate
+      id: form.id,
+      title: form.title,
+      content: form.content,
+      type: form.type,
+      startDate: form.startDate,
+      endDate: endDate,
+      isLunar: form.isLunar,
+      hideYear: form.hideYear,
+      advanceRemind: form.advanceRemind,
+      remindAtStart: form.remindAtStart,
+      remindAtEnd: form.remindAtEnd,
+      // 循环设置（仅新建时有效）
+      repeatType: form.cronExpr ? 'custom' : 'none',
+      cronExpr: form.cronExpr,
+      repeatEndDate: form.repeatEndDate || null
     }
 
     let todoId: number
     if (isEdit.value) {
-      await api.UpdateTodo(todoData as Todo)
+      await api.UpdateTodo(todoData as any)
       todoId = form.id
       ElMessage.success('更新成功')
     } else {
-      todoId = await api.CreateTodo(todoData)
-      ElMessage.success('创建成功')
+      todoId = await api.CreateTodo(todoData as any)
+      if (form.cronExpr && form.repeatEndDate && repeatCountPreview.value > 1) {
+        ElMessage.success(`已创建 ${repeatCountPreview.value} 条待办记录`)
+      } else {
+        ElMessage.success('创建成功')
+      }
     }
 
     // 上传附件

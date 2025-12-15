@@ -149,7 +149,25 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_notification_todo ON notification_logs(todo_id);
 	`
 
-	tables := []string{todoTable, attachmentTable, settingsTable, notificationTable}
+	// 创建待办实例表（存储每次循环执行的实例）
+	todoInstanceTable := `
+	CREATE TABLE IF NOT EXISTS todo_instances (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		todo_id INTEGER NOT NULL,
+		instance_index INTEGER NOT NULL,
+		scheduled_at DATETIME NOT NULL,
+		is_completed INTEGER DEFAULT 0,
+		completed_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE,
+		UNIQUE(todo_id, instance_index)
+	);
+	CREATE INDEX IF NOT EXISTS idx_todo_instances_todo ON todo_instances(todo_id);
+	CREATE INDEX IF NOT EXISTS idx_todo_instances_scheduled ON todo_instances(scheduled_at);
+	CREATE INDEX IF NOT EXISTS idx_todo_instances_completed ON todo_instances(is_completed);
+	`
+
+	tables := []string{todoTable, attachmentTable, settingsTable, notificationTable, todoInstanceTable}
 
 	for _, table := range tables {
 		if _, err := db.Exec(table); err != nil {
@@ -168,6 +186,12 @@ func createTables() error {
 	ALTER TABLE settings ADD COLUMN notification_sound_file TEXT DEFAULT '';
 	`
 	db.Exec(migrateSoundFile) // 忽略错误，如果字段已存在
+
+	// 迁移：添加 repeat_index 和 repeat_total 字段（如果不存在）
+	migrateRepeatIndex := `ALTER TABLE todos ADD COLUMN repeat_index INTEGER DEFAULT 0;`
+	db.Exec(migrateRepeatIndex) // 忽略错误，如果字段已存在
+	migrateRepeatTotal := `ALTER TABLE todos ADD COLUMN repeat_total INTEGER DEFAULT 0;`
+	db.Exec(migrateRepeatTotal) // 忽略错误，如果字段已存在
 
 	return nil
 }

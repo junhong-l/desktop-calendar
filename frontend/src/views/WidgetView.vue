@@ -30,6 +30,9 @@
             }"
             @click="handleTodoClick(todo)"
           >
+            <span class="status-tag" :style="{ background: getStatusTagColor(todo) }">
+              {{ getStatusText(todo) }}
+            </span>
             <div class="todo-row-1">
               <span 
                 class="complete-btn" 
@@ -47,7 +50,7 @@
               <span class="todo-title">{{ todo.title }}</span>
             </div>
             <div class="todo-row-2">
-              {{ formatDateTime(todo.startDate) }} - {{ formatDateTime(todo.endDate) }}
+              {{ formatTimeRange(todo.startDate, todo.endDate) }}
             </div>
           </div>
         </div>
@@ -75,10 +78,10 @@ dayjs.locale('zh-cn')
 dayjs.extend(weekOfYear)
 
 type Todo = models.Todo
-type WeekTodos = models.WeekTodos
+type WeekTodosResult = models.WeekTodosResult
 type TodoType = { value: string; label: string; icon: string; color: string }
 
-const weekTodosData = ref<WeekTodos | null>(null)
+const weekTodosData = ref<WeekTodosResult | null>(null)
 const todoTypes = ref<TodoType[]>([])
 
 // 当前日期：MM月DD日 星期X
@@ -91,16 +94,16 @@ const currentWeek = computed(() => dayjs().week())
 const weekTodos = computed(() => {
   const overdue = weekTodosData.value?.overdue || []
   const todos = weekTodosData.value?.todos || []
-  return [...overdue, ...todos].filter(t => !t.isCompleted)
+  return [...overdue, ...todos]
 })
 
 async function fetchData() {
   try {
-    const [todos, types] = await Promise.all([
-      api.GetWeekTodos(),
+    const [todosResult, types] = await Promise.all([
+      api.GetWeekTodosNew(),
       api.GetTodoTypes()
     ])
-    weekTodosData.value = todos
+    weekTodosData.value = todosResult
     todoTypes.value = types
   } catch (error) {
     console.error('Failed to fetch data:', error)
@@ -118,17 +121,22 @@ function getTodoTypeColor(type: string): string {
 // 根据待办状态获取背景色
 function getTodoStatusBg(todo: Todo): string {
   const now = dayjs()
-  const endDate = dayjs(todo.endDate)
   const startDate = dayjs(todo.startDate)
+  const endDate = dayjs(todo.endDate)
   
   // 超时（已过结束时间）- 浅红色背景
   if (endDate.isBefore(now)) {
     return '#fef0f0'
   }
   
-  // 进行中（已过开始时间但未到结束时间）- 纯白色
+  // 进行中（已过开始时间，未到结束时间）- 浅绿色背景
   if (startDate.isBefore(now) && endDate.isAfter(now)) {
-    return '#ffffff'
+    return '#f0f9eb'
+  }
+  
+  // 即将开始（24小时内）- 浅蓝色背景
+  if (startDate.diff(now, 'hour') < 24) {
+    return '#ecf5ff'
   }
   
   // 未开始 - 浅灰色
@@ -152,16 +160,21 @@ function getTodoStatusColor(todo: Todo): string {
 // 根据待办状态获取边框颜色
 function getTodoStatusBorder(todo: Todo): string {
   const now = dayjs()
-  const endDate = dayjs(todo.endDate)
   const startDate = dayjs(todo.startDate)
+  const endDate = dayjs(todo.endDate)
   
   // 超时 - 红色边框
   if (endDate.isBefore(now)) {
     return '1px solid #f56c6c'
   }
   
-  // 进行中 - 蓝色边框
+  // 进行中 - 绿色边框
   if (startDate.isBefore(now) && endDate.isAfter(now)) {
+    return '1px solid #67c23a'
+  }
+  
+  // 即将开始（24小时内）- 蓝色边框
+  if (startDate.diff(now, 'hour') < 24) {
     return '1px solid #409eff'
   }
   
@@ -169,8 +182,58 @@ function getTodoStatusBorder(todo: Todo): string {
   return '1px solid #dcdfe6'
 }
 
-function formatDateTime(date: string): string {
+// 获取状态文字
+function getStatusText(todo: Todo): string {
+  const now = dayjs()
+  const startDate = dayjs(todo.startDate)
+  const endDate = dayjs(todo.endDate)
+  
+  if (endDate.isBefore(now)) {
+    return '已超时'
+  }
+  if (startDate.isBefore(now) && endDate.isAfter(now)) {
+    return '进行中'
+  }
+  if (startDate.diff(now, 'hour') < 24) {
+    return '即将开始'
+  }
+  return '未开始'
+}
+
+// 获取状态标签颜色
+function getStatusTagColor(todo: Todo): string {
+  const now = dayjs()
+  const startDate = dayjs(todo.startDate)
+  const endDate = dayjs(todo.endDate)
+  
+  if (endDate.isBefore(now)) {
+    return '#f56c6c'  // 红色 - 已超时
+  }
+  if (startDate.isBefore(now) && endDate.isAfter(now)) {
+    return '#67c23a'  // 绿色 - 进行中
+  }
+  if (startDate.diff(now, 'hour') < 24) {
+    return '#409eff'  // 蓝色 - 即将开始
+  }
+  return '#909399'  // 灰色 - 未开始
+}
+
+function formatScheduledTime(date: string): string {
   return dayjs(date).format('YYYY年MM月DD日 HH:mm')
+}
+
+// 格式化时间范围
+function formatTimeRange(startDate: string, endDate: string): string {
+  if (!startDate) return ''
+  const start = dayjs(startDate)
+  const end = endDate ? dayjs(endDate) : null
+  
+  const startStr = start.format('YYYY年MM月DD日 HH:mm')
+  if (end) {
+    const endStr = end.format('YYYY年MM月DD日 HH:mm')
+    return `${startStr} - ${endStr}`
+  }
+  return startStr
 }
 
 // 点击待办打开主软件并显示详情
@@ -283,6 +346,7 @@ onMounted(() => {
 
 .todo-list {
   .todo-item {
+    position: relative;
     padding: 12px 15px;
     border-radius: 8px;
     cursor: pointer;
@@ -291,6 +355,16 @@ onMounted(() => {
 
     &:hover {
       filter: brightness(0.95);
+    }
+
+    .status-tag {
+      position: absolute;
+      top: 0;
+      right: 0;
+      padding: 2px 8px;
+      font-size: 10px;
+      color: #fff;
+      border-radius: 0 8px 0 8px;
     }
 
     .todo-row-1 {
@@ -331,6 +405,12 @@ onMounted(() => {
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+
+      .instance-index {
+        font-size: 12px;
+        color: #909399;
+        flex-shrink: 0;
       }
     }
 

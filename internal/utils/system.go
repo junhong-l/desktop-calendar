@@ -7,13 +7,22 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-
-	"golang.org/x/sys/windows/registry"
 )
 
 const appName = "TodoCalendar"
 
-// EnableAutoStart 启用开机自启
+// getStartupShortcutPath 获取启动文件夹中的快捷方式路径
+func getStartupShortcutPath() (string, error) {
+	// 获取用户启动文件夹路径: %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
+		return "", fmt.Errorf("无法获取APPDATA环境变量")
+	}
+	startupFolder := filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
+	return filepath.Join(startupFolder, appName+".lnk"), nil
+}
+
+// EnableAutoStart 启用开机自启（通过启动文件夹快捷方式）
 func EnableAutoStart() error {
 	if runtime.GOOS != "windows" {
 		return nil
@@ -30,20 +39,24 @@ func EnableAutoStart() error {
 		return fmt.Errorf("获取绝对路径失败: %w", err)
 	}
 
-	key, _, err := registry.CreateKey(
-		registry.CURRENT_USER,
-		`SOFTWARE\Microsoft\Windows\CurrentVersion\Run`,
-		registry.SET_VALUE,
-	)
+	shortcutPath, err := getStartupShortcutPath()
 	if err != nil {
-		return fmt.Errorf("打开注册表失败: %w", err)
+		return err
 	}
-	defer key.Close()
 
-	// 用引号包裹路径以支持空格
-	err = key.SetStringValue(appName, `"`+exePath+`"`)
+	// 使用 PowerShell 创建快捷方式，通过环境变量传递路径避免转义问题
+	script := `$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:SHORTCUT_PATH); $Shortcut.TargetPath = $env:TARGET_PATH; $Shortcut.WorkingDirectory = $env:WORKING_DIR; $Shortcut.Description = $env:APP_DESC; $Shortcut.Save()`
+
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	cmd.Env = append(os.Environ(),
+		"SHORTCUT_PATH="+shortcutPath,
+		"TARGET_PATH="+exePath,
+		"WORKING_DIR="+filepath.Dir(exePath),
+		"APP_DESC=待办日历",
+	)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("写入注册表失败: %w", err)
+		return fmt.Errorf("创建快捷方式失败: %w, output: %s", err, string(output))
 	}
 
 	return nil
@@ -55,21 +68,15 @@ func DisableAutoStart() error {
 		return nil
 	}
 
-	key, err := registry.OpenKey(
-		registry.CURRENT_USER,
-		`SOFTWARE\Microsoft\Windows\CurrentVersion\Run`,
-		registry.SET_VALUE,
-	)
+	shortcutPath, err := getStartupShortcutPath()
 	if err != nil {
-		// 如果键不存在，视为已经禁用
-		return nil
+		return err
 	}
-	defer key.Close()
 
-	err = key.DeleteValue(appName)
-	if err != nil {
-		// 如果值不存在，视为已经禁用
-		return nil
+	// 删除快捷方式文件
+	err = os.Remove(shortcutPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("删除快捷方式失败: %w", err)
 	}
 
 	return nil
@@ -81,17 +88,12 @@ func IsAutoStartEnabled() bool {
 		return false
 	}
 
-	key, err := registry.OpenKey(
-		registry.CURRENT_USER,
-		`SOFTWARE\Microsoft\Windows\CurrentVersion\Run`,
-		registry.QUERY_VALUE,
-	)
+	shortcutPath, err := getStartupShortcutPath()
 	if err != nil {
 		return false
 	}
-	defer key.Close()
 
-	_, _, err = key.GetStringValue(appName)
+	_, err = os.Stat(shortcutPath)
 	return err == nil
 }
 
