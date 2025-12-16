@@ -245,8 +245,8 @@ function getStatusText(row: any): string {
   if (startDate.isBefore(now) && endDate.isAfter(now)) {
     return '进行中'
   }
-  // 开始时间在24小时内 - 即将开始
-  if (startDate.diff(now, 'hour') < 24) {
+  // 开始时间在8小时内 - 即将开始
+  if (startDate.diff(now, 'hour') < 8) {
     return '即将开始'
   }
   return '未开始'
@@ -267,7 +267,7 @@ function getStatusType(row: any): 'info' | 'warning' | 'danger' | 'success' | ''
     return 'success'
   }
   // 即将开始 - 蓝色（primary）
-  if (startDate.diff(now, 'hour') < 24) {
+  if (startDate.diff(now, 'hour') < 8) {
     return ''
   }
   return 'info'

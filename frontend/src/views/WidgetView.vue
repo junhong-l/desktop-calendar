@@ -134,8 +134,8 @@ function getTodoStatusBg(todo: Todo): string {
     return '#f0f9eb'
   }
   
-  // 即将开始（24小时内）- 浅蓝色背景
-  if (startDate.diff(now, 'hour') < 24) {
+  // 即将开始（8小时内）- 浅蓝色背景
+  if (startDate.diff(now, 'hour') < 8) {
     return '#ecf5ff'
   }
   
@@ -173,8 +173,8 @@ function getTodoStatusBorder(todo: Todo): string {
     return '1px solid #67c23a'
   }
   
-  // 即将开始（24小时内）- 蓝色边框
-  if (startDate.diff(now, 'hour') < 24) {
+  // 即将开始（8小时内）- 蓝色边框
+  if (startDate.diff(now, 'hour') < 8) {
     return '1px solid #409eff'
   }
   
@@ -194,7 +194,7 @@ function getStatusText(todo: Todo): string {
   if (startDate.isBefore(now) && endDate.isAfter(now)) {
     return '进行中'
   }
-  if (startDate.diff(now, 'hour') < 24) {
+  if (startDate.diff(now, 'hour') < 8) {
     return '即将开始'
   }
   return '未开始'
@@ -212,7 +212,7 @@ function getStatusTagColor(todo: Todo): string {
   if (startDate.isBefore(now) && endDate.isAfter(now)) {
     return '#67c23a'  // 绿色 - 进行中
   }
-  if (startDate.diff(now, 'hour') < 24) {
+  if (startDate.diff(now, 'hour') < 8) {
     return '#409eff'  // 蓝色 - 即将开始
   }
   return '#909399'  // 灰色 - 未开始
