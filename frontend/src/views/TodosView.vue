@@ -315,6 +315,7 @@ async function handleDelete(todo: Todo) {
     })
     await todoStore.deleteTodo(todo.id)
     ElMessage.success('删除成功')
+    fetchTodos() // 刷新列表
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error('删除失败')

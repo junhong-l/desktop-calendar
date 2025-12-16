@@ -160,6 +160,7 @@
             :toolbars="mdToolbars"
             style="height: 350px"
             @onUploadImg="handleUploadImg"
+            :sanitize="sanitizeContent"
           />
           <div v-if="pastedImages.length > 0" class="pasted-images-hint">
             已粘贴 {{ pastedImages.length }} 张截图，将作为附件保存
@@ -239,6 +240,20 @@ const mdToolbars = [
   'preview'
 ]
 
+// sanitize 函数：将 attachment:文件名 替换为实际的图片 URL
+function sanitizeContent(html: string): string {
+  // 替换 attachment:文件名 为实际的预览 URL
+  let result = html
+  for (const [fileName, dataUrl] of imagePreviewUrls.value.entries()) {
+    // 替换 src="attachment:文件名" 格式
+    result = result.replace(
+      new RegExp(`src="attachment:${fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'g'),
+      `src="${dataUrl}"`
+    )
+  }
+  return result
+}
+
 const form = reactive({
   id: 0,
   title: '',
@@ -268,13 +283,42 @@ const rules = {
 // 监听visible变化，初始化表单
 watch(() => props.visible, async (val) => {
   if (val) {
+    // 清理旧的预览URL
+    for (const url of imagePreviewUrls.value.values()) {
+      if (url.startsWith('blob:')) {
+        URL.revokeObjectURL(url)
+      }
+    }
+    imagePreviewUrls.value.clear()
+    fileList.value = []
+    pastedImages.value = []
+
     await fetchTodoTypes()
     if (props.todo) {
-      // 编辑模式：由于循环待办已经拆分为多条独立记录，这里不再需要恢复循环设置
+      // 编辑模式：加载附件列表和预览URL
+      try {
+        const attachments = await api.GetTodoAttachments(props.todo.id)
+        for (const attachment of attachments) {
+          // 获取附件数据用于预览
+          const dataUrl = await api.GetAttachmentAsDataURL(props.todo.id, attachment.fileName)
+          imagePreviewUrls.value.set(attachment.fileName, dataUrl)
+          
+          // 将已有附件添加到列表显示（不带 raw，表示已上传）
+          fileList.value.push({
+            name: attachment.fileName,
+            url: dataUrl,  // 用于显示缩略图
+            status: 'success',
+            uid: attachment.id
+          })
+        }
+      } catch (error) {
+        console.error('Failed to load attachments:', error)
+      }
+
       Object.assign(form, {
         id: props.todo.id,
         title: props.todo.title,
-        content: props.todo.content,
+        content: props.todo.content,  // 保持原始内容（attachment:文件名格式）
         type: props.todo.type,
         startDate: props.todo.startDate,
         endDate: props.todo.endDate,
@@ -428,7 +472,36 @@ function handleFileChange(file: any, list: any[]) {
   fileList.value = list
 }
 
-function handleFileRemove(file: any, list: any[]) {
+async function handleFileRemove(file: any, list: any[]) {
+  // 如果是已保存的附件（没有 raw 属性），需要从服务器删除
+  if (!file.raw && file.uid && typeof file.uid === 'number') {
+    try {
+      await api.DeleteAttachment(file.uid)
+      ElMessage.success('附件已删除')
+    } catch (error) {
+      console.error('Failed to delete attachment:', error)
+      ElMessage.error('删除附件失败')
+      return // 删除失败，不更新列表
+    }
+  }
+  
+  // 从预览URL映射中移除
+  if (file.name) {
+    const url = imagePreviewUrls.value.get(file.name)
+    if (url && url.startsWith('blob:')) {
+      URL.revokeObjectURL(url)
+    }
+    imagePreviewUrls.value.delete(file.name)
+    
+    // 从内容中移除对应的图片引用
+    const attachmentPattern = `![${file.name}](attachment:${file.name})`
+    form.content = form.content.replace(attachmentPattern, '')
+    // 也处理可能存在的 blob URL 格式
+    if (url) {
+      form.content = form.content.replace(`![${file.name}](${url})`, '')
+    }
+  }
+  
   fileList.value = list
 }
 
@@ -517,10 +590,19 @@ async function handleSubmit() {
       endDate = form.startDate
     }
 
+    // 将内容中的 blob: URL 替换为 attachment:文件名 格式（仅处理新粘贴的图片）
+    let content = form.content
+    for (const [fileName, url] of imagePreviewUrls.value.entries()) {
+      // 只替换 blob: URL（新粘贴的图片），不替换 data: URL（已存在的附件）
+      if (url.startsWith('blob:')) {
+        content = content.replace(url, `attachment:${fileName}`)
+      }
+    }
+
     const todoData = {
       id: form.id,
       title: form.title,
-      content: form.content,
+      content: content,
       type: form.type,
       startDate: form.startDate,
       endDate: endDate,
@@ -549,17 +631,23 @@ async function handleSubmit() {
       }
     }
 
-    // 上传附件
+    // 上传附件（等待所有上传完成）
+    const uploadPromises: Promise<void>[] = []
     for (const file of fileList.value) {
       if (file.raw) {
-        const reader = new FileReader()
-        reader.onload = async (e) => {
-          const base64 = (e.target?.result as string).split(',')[1]
-          await api.UploadAttachment(todoId, file.name, base64, file.raw.type)
-        }
-        reader.readAsDataURL(file.raw)
+        const promise = new Promise<void>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = async (e) => {
+            const base64 = (e.target?.result as string).split(',')[1]
+            await api.UploadAttachment(todoId, file.name, base64, file.raw.type)
+            resolve()
+          }
+          reader.readAsDataURL(file.raw)
+        })
+        uploadPromises.push(promise)
       }
     }
+    await Promise.all(uploadPromises)
 
     emit('update:visible', false)
     emit('saved')

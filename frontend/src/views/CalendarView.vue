@@ -171,7 +171,6 @@ const yearOptions = computed(() => {
 async function fetchCalendar() {
   try {
     const data = await api.GetCalendarMonth(currentYear.value, currentMonth.value)
-    console.log('Calendar data:', data)
     calendarDays.value = data || []
   } catch (error) {
     console.error('Failed to fetch calendar:', error)
@@ -326,10 +325,7 @@ function handleDocumentClick() {
 }
 
 onMounted(async () => {
-  console.log('CalendarView mounted, fetching data...')
-  console.log('currentYear:', currentYear.value, 'currentMonth:', currentMonth.value)
   await fetchCalendar()
-  console.log('calendarDays after fetch:', calendarDays.value)
   fetchTodoTypes()
   document.addEventListener('click', handleDocumentClick)
 })

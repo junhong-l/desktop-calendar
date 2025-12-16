@@ -43,6 +43,7 @@
               previewTheme="github"
               :toolbars="mdToolbars"
               style="height: 300px"
+              :sanitize="sanitizeContent"
             />
           </div>
         </el-form-item>
@@ -132,6 +133,8 @@ const attachments = ref<Attachment[]>([])
 const saving = ref(false)
 const previewVisible = ref(false)
 const previewImageUrl = ref('')
+// 存储 attachment:文件名 -> dataUrl 的映射，用于保存时还原
+const attachmentUrlMap = ref<Map<string, string>>(new Map())
 
 const mdToolbars = [
   'bold', 'italic', 'strikeThrough', '-',
@@ -148,11 +151,35 @@ const dialogVisible = computed({
 
 watch(() => props.visible, async (val) => {
   if (val && props.todo) {
+    attachmentUrlMap.value.clear()
     await fetchTodoTypes()
-    editableContent.value = props.todo.content || ''
     await fetchAttachments()
+    
+    // 加载附件的 data URL 用于预览
+    for (const attachment of attachments.value) {
+      try {
+        const dataUrl = await api.GetAttachmentAsDataURL(props.todo.id, attachment.fileName)
+        attachmentUrlMap.value.set(attachment.fileName, dataUrl)
+      } catch (error) {
+        console.error(`Failed to load attachment ${attachment.fileName}:`, error)
+      }
+    }
+    // 保持原始内容（attachment:文件名格式）
+    editableContent.value = props.todo.content || ''
   }
 })
+
+// sanitize 函数：将 attachment:文件名 替换为实际的图片 URL
+function sanitizeContent(html: string): string {
+  let result = html
+  for (const [fileName, dataUrl] of attachmentUrlMap.value.entries()) {
+    result = result.replace(
+      new RegExp(`src="attachment:${fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'g'),
+      `src="${dataUrl}"`
+    )
+  }
+  return result
+}
 
 async function fetchTodoTypes() {
   try {
@@ -234,6 +261,7 @@ async function handleSave() {
   
   saving.value = true
   try {
+    // editableContent 保持原始的 attachment:文件名 格式，无需转换
     await api.UpdateTodo({
       ...props.todo,
       content: editableContent.value
