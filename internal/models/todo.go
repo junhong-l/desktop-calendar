@@ -133,9 +133,10 @@ type Todo struct {
 	CreatedAt            FlexTime  `json:"createdAt"`            // 创建时间
 	UpdatedAt            FlexTime  `json:"updatedAt"`            // 更新时间
 	// 以下字段仅用于创建时的批量生成，不存储在数据库
-	RepeatType    RepeatType `json:"repeatType,omitempty"`    // 循环类型
-	CronExpr      string     `json:"cronExpr,omitempty"`      // 自定义cron表达式
-	RepeatEndDate *FlexTime  `json:"repeatEndDate,omitempty"` // 循环终止时间
+	RepeatType      RepeatType `json:"repeatType,omitempty"`      // 循环类型
+	CronExpr        string     `json:"cronExpr,omitempty"`        // 自定义cron表达式
+	RepeatEndDate   *FlexTime  `json:"repeatEndDate,omitempty"`   // 循环终止时间
+	DurationMinutes int        `json:"durationMinutes,omitempty"` // 持续时间(分钟)，循环待办使用
 }
 
 // Attachment 附件模型

@@ -70,17 +70,7 @@
 
       <!-- 非生日类型 -->
       <template v-else>
-        <el-form-item label="开始时间" prop="startDate">
-          <el-date-picker
-            v-model="form.startDate"
-            type="datetime"
-            format="YYYY-MM-DD HH:mm"
-            value-format="YYYY-MM-DDTHH:mm:ss"
-            placeholder="选择开始时间"
-          />
-        </el-form-item>
-
-        <!-- Cron表达式 -->
+        <!-- 重复规则（放在前面，决定后续显示哪些字段） -->
         <el-form-item label="重复规则">
           <div class="cron-section">
             <el-input
@@ -112,26 +102,54 @@
           </div>
         </el-form-item>
 
-        <el-form-item label="结束时间" prop="endDate">
-          <el-date-picker
-            v-model="form.endDate"
-            type="datetime"
-            format="YYYY-MM-DD HH:mm"
-            value-format="YYYY-MM-DDTHH:mm:ss"
-            placeholder="选择结束时间"
-          />
-        </el-form-item>
+        <!-- 非循环待办：开始时间 + 结束时间 -->
+        <template v-if="!form.cronExpr">
+          <el-form-item label="开始时间" prop="startDate">
+            <el-date-picker
+              v-model="form.startDate"
+              type="datetime"
+              format="YYYY-MM-DD HH:mm"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+              placeholder="选择开始时间"
+            />
+          </el-form-item>
 
-        <el-form-item v-if="form.cronExpr" label="循环终止时间">
-          <el-date-picker
-            v-model="form.repeatEndDate"
-            type="datetime"
-            format="YYYY-MM-DD HH:mm"
-            value-format="YYYY-MM-DDTHH:mm:ss"
-            placeholder="选择循环终止时间"
-          />
-          <span v-if="repeatCountPreview > 0" class="form-hint">将创建 {{ repeatCountPreview }} 条待办记录</span>
-        </el-form-item>
+          <el-form-item label="结束时间" prop="endDate">
+            <el-date-picker
+              v-model="form.endDate"
+              type="datetime"
+              format="YYYY-MM-DD HH:mm"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+              placeholder="选择结束时间"
+            />
+          </el-form-item>
+        </template>
+
+        <!-- 循环待办：持续时间 + 终止时间 -->
+        <template v-else>
+          <el-form-item label="持续时间">
+            <div class="duration-inputs">
+              <el-input-number v-model="form.durationDays" :min="0" :max="365" controls-position="right" />
+              <span class="duration-unit">天</span>
+              <el-input-number v-model="form.durationHours" :min="0" :max="23" controls-position="right" />
+              <span class="duration-unit">时</span>
+              <el-input-number v-model="form.durationMinutes" :min="0" :max="59" controls-position="right" />
+              <span class="duration-unit">分</span>
+            </div>
+            <div class="form-hint">默认持续1小时</div>
+          </el-form-item>
+
+          <el-form-item label="终止时间" prop="repeatEndDate">
+            <el-date-picker
+              v-model="form.repeatEndDate"
+              type="datetime"
+              format="YYYY-MM-DD HH:mm"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+              placeholder="选择循环终止时间"
+            />
+            <span v-if="repeatCountPreview > 0" class="form-hint">将创建 {{ repeatCountPreview }} 条待办记录</span>
+          </el-form-item>
+        </template>
 
         <el-form-item label="提醒设置">
           <div class="remind-settings">
@@ -266,6 +284,9 @@ const form = reactive({
   cronExpr: '',
   repeatType: 'none',  // 循环类型
   repeatEndDate: '',   // 循环终止时间
+  durationDays: 0,     // 持续时间-天
+  durationHours: 1,    // 持续时间-时（默认1小时）
+  durationMinutes: 0,  // 持续时间-分
   advanceRemind: 15,
   remindAtStart: true,
   remindAtEnd: true
@@ -273,12 +294,24 @@ const form = reactive({
 
 const isEdit = computed(() => props.todo && props.todo.id > 0)
 
-const rules = {
-  title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
-  type: [{ required: true, message: '请选择类型', trigger: 'change' }],
-  startDate: [{ required: true, message: '请选择日期', trigger: 'change' }],
-  endDate: [{ required: true, message: '请选择结束时间', trigger: 'change' }]
-}
+// 动态验证规则
+const rules = computed(() => {
+  const baseRules: Record<string, any[]> = {
+    title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
+    type: [{ required: true, message: '请选择类型', trigger: 'change' }]
+  }
+  
+  // 非循环待办需要验证开始时间和结束时间
+  if (!form.cronExpr) {
+    baseRules.startDate = [{ required: true, message: '请选择开始时间', trigger: 'change' }]
+    baseRules.endDate = [{ required: true, message: '请选择结束时间', trigger: 'change' }]
+  } else {
+    // 循环待办需要验证终止时间
+    baseRules.repeatEndDate = [{ required: true, message: '请选择终止时间', trigger: 'change' }]
+  }
+  
+  return baseRules
+})
 
 // 监听visible变化，初始化表单
 watch(() => props.visible, async (val) => {
@@ -400,6 +433,9 @@ function resetForm() {
   form.cronExpr = ''
   form.repeatType = 'none'
   form.repeatEndDate = ''
+  form.durationDays = 0
+  form.durationHours = 1
+  form.durationMinutes = 0
   form.advanceRemind = 15
   form.remindAtStart = true
   form.remindAtEnd = true
@@ -584,10 +620,17 @@ async function handleSubmit() {
   submitting.value = true
   try {
     // 处理生日类型的结束日期
+    let startDate = form.startDate
     let endDate = form.endDate
+    
     if (form.type === 'birthday') {
       // 生日类型结束日期与开始日期相同
       endDate = form.startDate
+    } else if (form.cronExpr) {
+      // 循环待办：开始时间和结束时间由后端根据 cron 表达式计算
+      // 这里传递持续时间（转换为分钟）
+      startDate = ''  // 后端会根据 cron 计算
+      endDate = ''
     }
 
     // 将内容中的 blob: URL 替换为 attachment:文件名 格式（仅处理新粘贴的图片）
@@ -599,12 +642,15 @@ async function handleSubmit() {
       }
     }
 
+    // 计算持续时间（分钟）
+    const durationMinutes = form.durationDays * 24 * 60 + form.durationHours * 60 + form.durationMinutes
+    
     const todoData = {
       id: form.id,
       title: form.title,
       content: content,
       type: form.type,
-      startDate: form.startDate,
+      startDate: startDate,
       endDate: endDate,
       isLunar: form.isLunar,
       hideYear: form.hideYear,
@@ -614,7 +660,8 @@ async function handleSubmit() {
       // 循环设置（仅新建时有效）
       repeatType: form.cronExpr ? 'custom' : 'none',
       cronExpr: form.cronExpr,
-      repeatEndDate: form.repeatEndDate || null
+      repeatEndDate: form.repeatEndDate || null,
+      durationMinutes: form.cronExpr ? durationMinutes : 0  // 循环待办传递持续时间
     }
 
     let todoId: number
@@ -734,5 +781,21 @@ async function handleSubmit() {
   margin-right: 10px;
   font-size: 14px;
   color: #606266;
+}
+
+.duration-inputs {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  
+  .el-input-number {
+    width: 90px;
+  }
+  
+  .duration-unit {
+    font-size: 14px;
+    color: #606266;
+    margin-right: 10px;
+  }
 }
 </style>

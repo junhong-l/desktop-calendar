@@ -30,7 +30,7 @@
       </div>
 
       <!-- 日历格子 -->
-      <div class="calendar-grid">
+      <div class="calendar-grid" :style="{ gridTemplateRows: `repeat(${calendarRows}, 1fr)` }">
         <div
           v-for="day in calendarDays"
           :key="day.date"
@@ -165,6 +165,11 @@ const yearOptions = computed(() => {
     years.push(i)
   }
   return years
+})
+
+// 计算日历行数
+const calendarRows = computed(() => {
+  return Math.ceil(calendarDays.value.length / 7)
 })
 
 // 获取日历数据
@@ -337,7 +342,7 @@ onUnmounted(() => {
 
 <style lang="scss" scoped>
 .calendar-view {
-  height: 100%;
+  height: calc(100vh - 80px);
   display: flex;
   flex-direction: column;
 }
@@ -390,7 +395,7 @@ onUnmounted(() => {
   flex: 1;
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  grid-auto-rows: 1fr;
+  // grid-template-rows 由内联样式动态设置
 }
 
 .calendar-cell {
@@ -398,7 +403,7 @@ onUnmounted(() => {
   padding: 8px;
   cursor: pointer;
   transition: all 0.2s;
-  min-height: 100px;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   background: #fff;
@@ -460,6 +465,7 @@ onUnmounted(() => {
   .todo-indicators {
     flex: 1;
     overflow: hidden;
+    min-width: 0;
   }
 
   .todo-indicator {
@@ -468,6 +474,7 @@ onUnmounted(() => {
     gap: 5px;
     padding: 2px 0;
     font-size: 12px;
+    min-width: 0;
 
     .todo-dot {
       width: 6px;
@@ -477,6 +484,8 @@ onUnmounted(() => {
     }
 
     .todo-title {
+      flex: 1;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;

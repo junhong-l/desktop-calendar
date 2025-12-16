@@ -62,7 +62,23 @@
 
     <!-- 待办列表 -->
     <div class="todo-list card">
-      <el-table :data="todoStore.todos" v-loading="todoStore.loading" style="width: 100%">
+      <!-- 批量操作栏 -->
+      <div class="batch-actions" v-if="selectedTodos.length > 0">
+        <span class="selected-count">已选择 {{ selectedTodos.length }} 项</span>
+        <el-button type="danger" size="small" @click="handleBatchDelete">
+          <el-icon><Delete /></el-icon>
+          批量删除
+        </el-button>
+      </div>
+      
+      <el-table 
+        :data="todoStore.todos" 
+        v-loading="todoStore.loading" 
+        style="width: 100%"
+        @selection-change="handleSelectionChange"
+      >
+        <el-table-column type="selection" width="50" />
+        
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="getStatusType(row)" size="small">
@@ -162,6 +178,7 @@ const filter = reactive({
 
 const dialogVisible = ref(false)
 const editingTodo = ref<Todo | null>(null)
+const selectedTodos = ref<Todo[]>([])
 
 const yearOptions = computed(() => {
   const years = []
@@ -323,6 +340,43 @@ async function handleDelete(todo: Todo) {
   }
 }
 
+// 处理多选变化
+function handleSelectionChange(selection: Todo[]) {
+  selectedTodos.value = selection
+}
+
+// 批量删除
+async function handleBatchDelete() {
+  if (selectedTodos.value.length === 0) return
+  
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除选中的 ${selectedTodos.value.length} 项待办吗？此操作不可恢复。`, 
+      '批量删除确认', 
+      { type: 'warning' }
+    )
+    
+    // 逐个删除
+    let successCount = 0
+    for (const todo of selectedTodos.value) {
+      try {
+        await todoStore.deleteTodo(todo.id)
+        successCount++
+      } catch (e) {
+        console.error(`Failed to delete todo ${todo.id}:`, e)
+      }
+    }
+    
+    ElMessage.success(`成功删除 ${successCount} 项待办`)
+    selectedTodos.value = []
+    fetchTodos() // 刷新列表
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('批量删除失败')
+    }
+  }
+}
+
 async function handleComplete(row: Todo) {
   try {
     await ElMessageBox.confirm(`确定要将"${row.title}"标记为已完成吗？`, '确认完成', {
@@ -411,6 +465,21 @@ onMounted(() => {
 
   .no-repeat {
     color: #c0c4cc;
+  }
+  
+  .batch-actions {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 10px 15px;
+    background: #f0f9eb;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    
+    .selected-count {
+      color: #67c23a;
+      font-weight: 500;
+    }
   }
 }
 

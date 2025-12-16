@@ -86,9 +86,13 @@
           </template>
         </el-table-column>
         
-        <el-table-column label="操作" width="120" align="center">
+        <el-table-column label="操作" width="180" align="center">
           <template #default="{ row }">
             <el-button-group>
+              <el-button size="small" @click="handleViewDetail(row)">
+                <el-icon><View /></el-icon>
+                详情
+              </el-button>
               <el-button size="small" @click="handleRestore(row)">
                 <el-icon><RefreshLeft /></el-icon>
                 恢复
@@ -111,16 +115,22 @@
         />
       </div>
     </div>
+    <!-- 历史详情弹窗 -->
+    <HistoryDetailDialog 
+      v-model:visible="detailDialogVisible"
+      :todo="selectedTodo"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed, nextTick } from 'vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Search, RefreshLeft, Refresh } from '@element-plus/icons-vue'
+import { Search, RefreshLeft, Refresh, View } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import * as api from '@/wailsjs/go/app/App'
 import { models } from '@/wailsjs/go/models'
+import HistoryDetailDialog from '@/components/HistoryDetailDialog.vue'
 
 type Todo = models.Todo
 type TodoType = { value: string; label: string; icon: string; color: string }
@@ -130,6 +140,8 @@ const todoTypes = ref<TodoType[]>([])
 const loading = ref(false)
 const total = ref(0)
 const page = ref(1)
+const detailDialogVisible = ref(false)
+const selectedTodo = ref<Todo | null>(null)
 
 const filter = reactive({
   keyword: '',
@@ -229,6 +241,11 @@ function handleMonthDropdownVisible(visible: boolean) {
 
 function handleRefresh() {
   fetchHistory()
+}
+
+function handleViewDetail(row: Todo) {
+  selectedTodo.value = row
+  detailDialogVisible.value = true
 }
 
 function handleSearch() {

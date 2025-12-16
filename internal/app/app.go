@@ -78,8 +78,8 @@ func (a *App) CreateTodo(todo models.Todo) (int64, error) {
 	if todo.CronExpr != "" && todo.RepeatEndDate != nil && !todo.RepeatEndDate.Time.IsZero() {
 		scheduledTimes = utils.GetCronScheduledTimes(
 			todo.CronExpr,
-			todo.StartDate.Time,
-			1000, // 最多1000次
+			time.Now(), // 从现在开始计算
+			1000,       // 最多1000次
 		)
 		// 过滤掉零值时间和超过结束日期的时间
 		filtered := make([]time.Time, 0)
@@ -102,6 +102,12 @@ func (a *App) CreateTodo(todo models.Todo) (int64, error) {
 		return id, nil
 	}
 
+	// 计算持续时间（默认1小时）
+	duration := time.Hour
+	if todo.DurationMinutes > 0 {
+		duration = time.Duration(todo.DurationMinutes) * time.Minute
+	}
+
 	// 为每个时间点创建一条独立的待办记录
 	totalCount := len(scheduledTimes)
 	var firstID int64
@@ -109,11 +115,8 @@ func (a *App) CreateTodo(todo models.Todo) (int64, error) {
 		newTodo := todo
 		newTodo.ID = 0 // 确保创建新记录
 		newTodo.StartDate = models.FlexTime{Time: scheduledTime}
-		// 结束时间按同样的时间差调整
-		if !todo.EndDate.Time.IsZero() {
-			duration := todo.EndDate.Time.Sub(todo.StartDate.Time)
-			newTodo.EndDate = models.FlexTime{Time: scheduledTime.Add(duration)}
-		}
+		// 结束时间 = 开始时间 + 持续时间
+		newTodo.EndDate = models.FlexTime{Time: scheduledTime.Add(duration)}
 		// 设置循环序号信息
 		newTodo.RepeatIndex = i + 1
 		newTodo.RepeatTotal = totalCount
